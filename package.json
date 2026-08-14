@@ -1,0 +1,48 @@
+{
+  "name": "@local/pi-prompt-translate-czk",
+  "version": "0.4.0",
+  "description": "Pi package that translates user prompts to English and translates final assistant replies back to a configured language.",
+  "type": "module",
+  "license": "MIT",
+  "author": "05kim",
+  "homepage": "https://github.com/05kim/pi-prompt-translate#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/05kim/pi-prompt-translate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/05kim/pi-prompt-translate/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "translation",
+    "prompt"
+  ],
+  "files": [
+    "README*.md",
+    "LICENSE",
+    "index.ts",
+    "package.json"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.79.10",
+    "@earendil-works/pi-coding-agent": "0.79.10",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.6"
+  }
+}

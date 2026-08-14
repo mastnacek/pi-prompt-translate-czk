@@ -23,6 +23,7 @@
     "README*.md",
     "LICENSE",
     "index.ts",
+    "prompts.ts",
     "package.json"
   ],
   "scripts": {

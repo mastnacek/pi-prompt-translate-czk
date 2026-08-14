@@ -27,15 +27,17 @@ Set with `/prompt-translate boost <level>`:
 |--------|--------------|
 | `off`  | Plain faithful translation. Typos/grammar fixed silently, meaning untouched. |
 | `on` (= `boost`) | Faithful clarity edit. Output contains **only** what you wrote — no invented specifics, no restructuring. A short casual request stays short. |
-| `mega` | Full restructure. Turns the request into clear imperative sentences and, for multi-part requests, an ordered task list (investigate → fix → verify). May make implicit-but-obvious expectations explicit (e.g. "check the configuration first"), but still never invents new features, files, or scope. |
+| `plus` | Imperative sentences + light structure. Explicit multi-part requests become an ordered task list, but **strict fidelity**: every sentence must trace to your words — no inferred steps, checks, or details. |
+| `mega` | Full restructure into clear imperatives + ordered task list (investigate → fix → verify). Reordering/structuring allowed, but every task must correspond to something you explicitly said. |
 
-Both levels run in the **same single LLM call** as the translation — no extra
-request, only slightly longer output on `mega`.
+All levels run in the **same single LLM call** as the translation — no extra
+request, only slightly longer output on `plus`/`mega`.
 
 Example (Czech input):
 
 - Source: `tak už to funguje, ale ta hnědá barva se mi nelíbí, změň ji podle theme`
 - `boost`: `It works now, but I don't like the brown background. Change it to match the theme.`
+- `plus`: `It works now, but I don't like the brown background. Change it to match the configured pi theme.`
 - `mega`: `It works now, but I don't like the brown background. Tasks: 1. Check which theme is configured in the pi agent. 2. Adjust the background color of the original-prompt box to match that theme.`
 
 ## Commands
@@ -47,7 +49,7 @@ Example (Czech input):
 /prompt-translate responses on|off           Translate final reply back to target language
 /prompt-translate lang <language>            Target language for replies (default Czech)
 /prompt-translate model <m> [until DATE]     Set translate model; optional auto-expiry
-/prompt-translate boost off|on|mega          Prompt enhancement level (see table above)
+/prompt-translate boost off|on|plus|mega    Prompt enhancement level (see table above)
 /prompt-translate think on|off               Use reasoning on the translate model (low effort, capped)
 /prompt-translate original on|off            Show the original prompt above the translated one
 /prompt-translate balance [refresh]          USD→CZK rate + OpenRouter credit balance

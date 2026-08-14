@@ -26,6 +26,7 @@ import {
 	ENGLISH_ONLY_AGENT_INSTRUCTION,
 	PROMPT_BOOST_SYSTEM_PROMPT,
 	PROMPT_MEGA_SYSTEM_PROMPT,
+	PROMPT_PLUS_SYSTEM_PROMPT,
 	PROMPT_TRANSLATE_SYSTEM_PROMPT,
 } from "./prompts";
 
@@ -36,8 +37,9 @@ const FINAL_TRANSLATION_ENTRY_TYPE = "pi-prompt-translate-final-translation";
 type TranslateModelSetting = "current" | "default" | `${string}/${string}`;
 
 /** Prompt enhancement level: "off" = plain translation, "boost" = faithful clarity
- *  edit, "mega" = full restructure into imperative, ordered tasks. */
-type BoostLevel = "off" | "boost" | "mega";
+ *  edit, "plus" = imperative + light structure with strict fidelity,
+ *  "mega" = full restructure into imperative, ordered tasks. */
+type BoostLevel = "off" | "boost" | "plus" | "mega";
 
 type TranslateConfig = {
 	enabled: boolean;
@@ -767,9 +769,11 @@ async function translate(
 		purpose === "prompt"
 			? config.boost === "mega"
 				? PROMPT_MEGA_SYSTEM_PROMPT
-				: config.boost === "boost"
-					? PROMPT_BOOST_SYSTEM_PROMPT
-					: PROMPT_TRANSLATE_SYSTEM_PROMPT
+				: config.boost === "plus"
+					? PROMPT_PLUS_SYSTEM_PROMPT
+					: config.boost === "boost"
+						? PROMPT_BOOST_SYSTEM_PROMPT
+						: PROMPT_TRANSLATE_SYSTEM_PROMPT
 			: [
 					`Translate to ${targetLanguage}. Output only the translation.`,
 					"Keep code, paths, commands, markdown, JSON, placeholders, XML-like tags, machine-readable sections, and protected tokens unchanged.",
@@ -1357,12 +1361,12 @@ export default function (pi: ExtensionAPI) {
 						? "boost"
 						: value === "off"
 							? "off"
-							: value === "mega"
-								? "mega"
+							: value === "plus" || value === "mega"
+								? value
 								: undefined;
 				if (!level) {
 					ctx.ui.notify(
-						"Usage: /prompt-translate boost off|on|mega — on = faithful clarity edit, mega = restructure into ordered imperative tasks",
+						"Usage: /prompt-translate boost off|on|plus|mega — on = faithful clarity edit, plus = imperative + light structure (strict), mega = full restructure into ordered tasks",
 						"warning",
 					);
 					return;
@@ -1373,10 +1377,12 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(
 					`prompt-translate boost level: ${level}${
 						level === "mega"
-							? " (prompts are restructured into clear, ordered imperative tasks)"
-							: level === "boost"
-								? " (faithful clarity edit, no restructuring)"
-								: ""
+							? " (full restructure into ordered imperative tasks; strict — no invented steps)"
+							: level === "plus"
+								? " (imperative + light structure, strict fidelity)"
+								: level === "boost"
+									? " (faithful clarity edit, no restructuring)"
+									: ""
 					}`,
 					"info",
 				);
@@ -1443,7 +1449,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (subcommand === "help") {
 				ctx.ui.notify(
-					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|mega|original on|off|balance [refresh]|debug on|off|reset",
+					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|plus|mega|original on|off|balance [refresh]|debug on|off|reset",
 					"info",
 				);
 				return;

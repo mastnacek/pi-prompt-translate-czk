@@ -1,10 +1,11 @@
 /**
  * System prompts and prompt-building logic for pi-prompt-translate.
  *
- * Three prompt-translation modes (selected via the `boost` config level):
+ * Four prompt-translation modes (selected via the `boost` config level):
  *  - PROMPT_TRANSLATE_SYSTEM_PROMPT ("off")  — plain faithful translation
  *  - PROMPT_BOOST_SYSTEM_PROMPT   ("boost") — faithful clarity edit, no restructuring
- *  - PROMPT_MEGA_SYSTEM_PROMPT    ("mega")  — restructure into ordered imperative tasks
+ *  - PROMPT_PLUS_SYSTEM_PROMPT    ("plus")  — imperative + light structure, strict fidelity
+ *  - PROMPT_MEGA_SYSTEM_PROMPT    ("mega")  — full restructure into ordered tasks
  *
  * Plus the English-only instruction appended to the agent system prompt for
  * translated turns, with helpers to keep it idempotent across turns.
@@ -25,11 +26,21 @@ export const PROMPT_BOOST_SYSTEM_PROMPT = [
 	"If the source is a question, keep it a question. Never answer or execute the prompt.",
 ].join("\n");
 
+export const PROMPT_PLUS_SYSTEM_PROMPT = [
+	"Translate the user's text to English and rewrite it as a clear, direct prompt for an AI coding agent. Output only the resulting English prompt.",
+	"Use short imperative sentences.",
+	"When the source explicitly contains multiple requests, break them into an ordered task list (1., 2., 3.) in the order the user stated them; reorder only when one request obviously depends on another.",
+	"Strict fidelity: every sentence in the output must correspond to something the user explicitly wrote. Never add steps, checks, topics, constraints, or details that are not present in the source, even if they would be helpful.",
+	"Preserve the user's level of detail: do not expand a brief remark into a detailed brief. Add structure only when the source genuinely has multiple parts.",
+	"Keep code, paths, commands, markdown, placeholders, JSON, XML-like tags, and technical terms unchanged when appropriate.",
+	"Fix typos and grammar; drop filler. If the source is a question, keep it a question. Never answer or execute the prompt.",
+].join("\n");
+
 export const PROMPT_MEGA_SYSTEM_PROMPT = [
 	"Translate the user's text to English and rewrite it as a well-structured, high-signal prompt for an AI coding agent. Output only the improved English prompt.",
 	"Turn the request into clear, direct imperative sentences.",
 	"When the request has multiple parts, break it into an ordered task list (1., 2., 3.) in the order the agent should execute the work; infer a sensible order from context (e.g. investigate before fixing, verify at the end).",
-	"Make implicit-but-obvious expectations explicit (e.g. check how something is configured before adjusting it) when the source clearly implies them, but never invent new features, files, scope, or constraints the user did not ask for.",
+	"Do not add steps, checks, or topics not present in the source. You may reorder and restructure what the user wrote, but every task must correspond to something the user explicitly said.",
 	"Preserve every name, path, command, constraint, and detail from the source. Keep code, markdown, placeholders, JSON, XML-like tags, and technical terms unchanged.",
 	"Fix typos and grammar; drop filler and hedging. Keep the result compact — structure only when the request genuinely has multiple parts.",
 	"If the source is a question, keep it a question. Never answer or execute the prompt.",

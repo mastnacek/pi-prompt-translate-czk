@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
 	Api,
@@ -582,8 +582,38 @@ function normalizeConfig(value: Partial<TranslateConfig>): TranslateConfig {
 	};
 }
 
+// Global config file: applies to every session. Precedence:
+// DEFAULT_CONFIG < global file < session entries (per-session overrides win).
+const GLOBAL_CONFIG_FILE = join(getAgentDir(), "pi-prompt-translate.json");
+
+function loadGlobalConfig(): Partial<TranslateConfig> {
+	try {
+		return JSON.parse(
+			readFileSync(GLOBAL_CONFIG_FILE, "utf8"),
+		) as Partial<TranslateConfig>;
+	} catch {
+		return {};
+	}
+}
+
+function saveGlobalConfig() {
+	try {
+		writeFileSync(GLOBAL_CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
+	} catch {
+		/* best-effort: global persistence must never break the session */
+	}
+}
+
+function clearGlobalConfig() {
+	try {
+		if (existsSync(GLOBAL_CONFIG_FILE)) unlinkSync(GLOBAL_CONFIG_FILE);
+	} catch {
+		/* best-effort */
+	}
+}
+
 function extractLatestConfig(ctx: ExtensionContext): TranslateConfig {
-	let latest = { ...DEFAULT_CONFIG };
+	let latest = normalizeConfig(loadGlobalConfig());
 	for (const entry of ctx.sessionManager.getEntries()) {
 		if (
 			entry.type === "custom" &&
@@ -1143,6 +1173,7 @@ async function statusText(ctx: ExtensionContext): Promise<string> {
 		`target=${config.targetLanguage}`,
 		`translateModel=${configuredModel}`,
 		`temporaryModel=${temporaryInfo}`,
+		`globalConfig=${existsSync(GLOBAL_CONFIG_FILE) ? "on" : "off"}`,
 		`resolvedTranslateModel=${resolved}`,
 		`currentModel=${modelLabel(ctx.model as Model<Api> | undefined)}`,
 		`thinking=${config.translateReasoning ? "on (low)" : "off"}`,
@@ -1199,14 +1230,22 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Translate prompts to English and optionally translate final replies back to the configured language.",
 		handler: async (args, ctx) => {
-			const [subcommand, ...rest] = args.trim().split(/\s+/).filter(Boolean);
+			// "--global" can appear anywhere in the args: the change also persists
+			// to the global config file, applying to all future sessions.
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			const writeGlobal = tokens.includes("--global");
+			const [subcommand, ...rest] = tokens.filter((t) => t !== "--global");
+			const persist = () => {
+				persistConfig(pi);
+				if (writeGlobal) saveGlobalConfig();
+			};
 			if (!subcommand || subcommand === "status") {
 				ctx.ui.notify(await statusText(ctx), "info");
 				return;
 			}
 			if (subcommand === "on" || subcommand === "enable") {
 				config.enabled = true;
-				persistConfig(pi);
+				persist();
 				updateTranslateStatus(ctx);
 				ctx.ui.notify(
 					`prompt-translate input enabled (target: ${config.targetLanguage})`,
@@ -1217,7 +1256,7 @@ export default function (pi: ExtensionAPI) {
 			if (subcommand === "off" || subcommand === "disable") {
 				config.enabled = false;
 				pending = undefined;
-				persistConfig(pi);
+				persist();
 				updateTranslateStatus(ctx);
 				ctx.ui.notify("prompt-translate input disabled", "info");
 				return;
@@ -1230,7 +1269,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				config.enabled = value === "on";
 				if (!config.enabled) pending = undefined;
-				persistConfig(pi);
+				persist();
 				updateTranslateStatus(ctx);
 				ctx.ui.notify(`prompt-translate input ${value}`, "info");
 				return;
@@ -1252,7 +1291,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				config.translateResponses = value === "on";
 				if (pending) pending.translateResponses = config.translateResponses;
-				persistConfig(pi);
+				persist();
 				ctx.ui.notify(`prompt-translate responses ${value}`, "info");
 				return;
 			}
@@ -1267,7 +1306,7 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				config.targetLanguage = language;
-				persistConfig(pi);
+				persist();
 				updateTranslateStatus(ctx);
 				ctx.ui.notify(
 					`prompt-translate target language set to ${language}`,
@@ -1307,7 +1346,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					config.temporaryModel = modelSetting;
 					config.temporaryModelUntil = untilRaw;
-					persistConfig(pi);
+					persist();
 					updateTranslateStatus(ctx);
 					try {
 						await resolveConfiguredModel(ctx);
@@ -1326,7 +1365,7 @@ export default function (pi: ExtensionAPI) {
 				config.translateModel = modelSetting;
 				config.temporaryModel = undefined;
 				config.temporaryModelUntil = undefined;
-				persistConfig(pi);
+				persist();
 				updateTranslateStatus(ctx);
 				ctx.ui.notify(
 					`prompt-translate translation model set to ${modelSetting}`,
@@ -1346,7 +1385,7 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				config.translateReasoning = value === "on";
-				persistConfig(pi);
+				persist();
 				updateTranslateStatus(ctx);
 				ctx.ui.notify(
 					`prompt-translate thinking ${value}${value === "on" ? " (uses reasoning when the translate model supports it)" : ""}`,
@@ -1372,7 +1411,7 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				config.boost = level;
-				persistConfig(pi);
+				persist();
 				updateTranslateStatus(ctx);
 				ctx.ui.notify(
 					`prompt-translate boost level: ${level}${
@@ -1395,7 +1434,7 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				config.showOriginal = value === "on";
-				persistConfig(pi);
+				persist();
 				ctx.ui.notify(
 					`prompt-translate original prompt display ${value}`,
 					"info",
@@ -1435,22 +1474,47 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				config.debug = value === "on";
-				persistConfig(pi);
+				persist();
 				ctx.ui.notify(`prompt-translate debug ${value}`, "info");
 				return;
 			}
 			if (subcommand === "reset") {
 				config = { ...DEFAULT_CONFIG };
 				pending = undefined;
-				persistConfig(pi);
+				persist();
 				updateTranslateStatus(ctx);
 				ctx.ui.notify("prompt-translate settings reset", "info");
 				return;
 			}
 			if (subcommand === "help") {
 				ctx.ui.notify(
-					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|plus|mega|original on|off|balance [refresh]|debug on|off|reset",
+					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|plus|mega|original on|off|balance [refresh]|debug on|off|global [show|off]|reset — add --global to any subcommand to persist for all sessions",
 					"info",
+				);
+				return;
+			}
+			if (subcommand === "global") {
+				const value = rest[0];
+				if (value === "off" || value === "clear") {
+					clearGlobalConfig();
+					ctx.ui.notify(
+						"prompt-translate global config cleared; future sessions use defaults",
+						"info",
+					);
+					return;
+				}
+				if (!value || value === "show") {
+					ctx.ui.notify(
+						existsSync(GLOBAL_CONFIG_FILE)
+							? `global config: ${JSON.stringify(loadGlobalConfig())}`
+							: "no global config file; all sessions use defaults",
+						"info",
+					);
+					return;
+				}
+				ctx.ui.notify(
+					"Usage: /prompt-translate global [show|off] — any subcommand accepts --global to persist for all sessions",
+					"warning",
 				);
 				return;
 			}

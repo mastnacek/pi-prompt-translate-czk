@@ -101,8 +101,24 @@ adapts automatically when you switch themes. Toggle with
 
 ## Configuration persistence
 
-All settings are stored as custom entries in the pi session log, so they
-survive reloads and are restored per session. `/prompt-translate reset`
+Settings persist on two levels:
+
+- **Session** (default): stored as custom entries in the pi session log,
+  restored per session.
+- **Global** (`--global` flag): also written to
+  `~/.pi/agent/pi-prompt-translate.json` and applied to **every** session.
+
+Precedence: `defaults < global file < session entries`. A change made without
+`--global` overrides the global config for that session only.
+
+```
+/prompt-translate boost mega --global    # all future sessions use mega
+/prompt-translate lang German --global   # replies in German everywhere
+/prompt-translate global show            # inspect the global config file
+/prompt-translate global off             # delete it, back to defaults
+```
+
+`/prompt-translate status` shows `globalConfig=on|off`. `/prompt-translate reset`
 restores the defaults:
 
 ```json

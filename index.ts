@@ -143,6 +143,8 @@ type BalanceInfo = { remaining: number; total: number; used: number };
 // via the shared extension event bus; plugin absent = no-op passthrough.
 const AT_WORDS_PINK = "\x1b[1m\x1b[38;2;255;95;215m";
 const AT_WORDS_PINK_OFF = "\x1b[22m\x1b[39m";
+// Mention paths (`@src/foo.ts`, `@"quoted path"`) — same source pattern as pi-at-words.
+const AT_WORDS_MENTION_SRC = String.raw`@"[^"\n]+"|@[\w][\w./-]*`;
 let atWordsRe: RegExp | null = null;
 
 function pinkAtWords(text: string): string {
@@ -1210,9 +1212,15 @@ export default function (pi: ExtensionAPI) {
 			)
 			.sort((a, b) => b.length - a.length)
 			.join("|");
-		atWordsRe = alts
-			? new RegExp(`(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`, "g")
-			: null;
+		if (!alts) {
+			atWordsRe = null;
+			return;
+		}
+		// Single combined pass: mentions + words never nest/corrupt each other's color spans.
+		atWordsRe = new RegExp(
+			`(?:${AT_WORDS_MENTION_SRC})|(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`,
+			"g",
+		);
 	});
 
 	// Render the original (untranslated) prompt above the translated user message.

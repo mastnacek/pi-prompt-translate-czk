@@ -138,6 +138,21 @@ let sessionCostUsd = 0;
 
 type BalanceInfo = { remaining: number; total: number; used: number };
 
+// --- pi-at-words integration ------------------------------------------------
+// Pink highlight for confirmed ?words (owned by pi-at-words). Word set arrives
+// via the shared extension event bus; plugin absent = no-op passthrough.
+const AT_WORDS_PINK = "\x1b[1m\x1b[38;2;255;95;215m";
+const AT_WORDS_PINK_OFF = "\x1b[22m\x1b[39m";
+let atWordsRe: RegExp | null = null;
+
+function pinkAtWords(text: string): string {
+	if (atWordsRe === null) return text;
+	return text.replace(
+		atWordsRe,
+		(m) => `${AT_WORDS_PINK}${m}${AT_WORDS_PINK_OFF}`,
+	);
+}
+
 // Soft amber ANSI — distinct (money) but not harsh; dark-theme friendly.
 const ANSI_AMBER = "\x1b[38;2;218;165;32m";
 const ANSI_RESET = "\x1b[0m";
@@ -177,8 +192,7 @@ function sumSessionCostUsd(ctx: ExtensionContext): number {
 			entry.customType !== FINAL_TRANSLATION_ENTRY_TYPE
 		)
 			continue;
-		const usage = (entry.data as { usage?: TranslationUsage } | undefined)
-			?.usage;
+		const usage = (entry.data as { usage?: TranslationUsage } | undefined)?.usage;
 		const cost = usage?.cost?.total;
 		if (typeof cost === "number") total += cost;
 	}
@@ -717,8 +731,7 @@ async function resolveConfiguredModel(
 		const found = ctx.modelRegistry.find(provider, model) as
 			| Model<Api>
 			| undefined;
-		if (!found)
-			throw new Error(`Default model not found: ${provider}/${model}`);
+		if (!found) throw new Error(`Default model not found: ${provider}/${model}`);
 		return found;
 	}
 
@@ -810,10 +823,7 @@ async function translate(
 					"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
 				].join("\n");
 
-	const llmContext = createTranslationContext(
-		systemPrompt,
-		protectedInput.text,
-	);
+	const llmContext = createTranslationContext(systemPrompt, protectedInput.text);
 	const thinkOn = config.translateReasoning && model.reasoning === true;
 	const makeOptions = (
 		reasoning: ThinkingLevel | undefined,
@@ -1189,6 +1199,22 @@ export default function (pi: ExtensionAPI) {
 	piApi = pi;
 	installPromptInterceptor();
 
+	// Sync confirmed-word set from pi-at-words (live updates; latest wins).
+	pi.events.on("at-words:words-updated", (data: unknown) => {
+		const words = (data as { words?: unknown } | undefined)?.words;
+		if (!Array.isArray(words)) return;
+		const alts = words
+			.filter(
+				(w): w is string =>
+					typeof w === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(w),
+			)
+			.sort((a, b) => b.length - a.length)
+			.join("|");
+		atWordsRe = alts
+			? new RegExp(`(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`, "g")
+			: null;
+	});
+
 	// Render the original (untranslated) prompt above the translated user message.
 	// STATE entries are appended in the input handler before pi creates the user
 	// message entry, so this box lands directly above the translated text. The
@@ -1199,13 +1225,11 @@ export default function (pi: ExtensionAPI) {
 			if (!config.showOriginal) return undefined;
 			const source = entry.data?.source;
 			if (typeof source !== "string" || !source.trim()) return undefined;
-			// Theme-driven styling: the theme's selectedBg slot contrasts clearly with
-			// the user message background (userMessageBg) and adapts on theme switch.
-			// Label and text use the theme's customMessage slots.
+			// Theme-driven styling, with pi-at-words pink for confirmed ?words.
 			const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
 			box.addChild(
 				new Text(
-					`${theme.fg("customMessageLabel", "original:")}\n${theme.fg("customMessageText", source)}`,
+					`${theme.fg("customMessageLabel", "original:")}\n${theme.fg("customMessageText", pinkAtWords(source))}`,
 				),
 			);
 			return box;
@@ -1275,14 +1299,9 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (
-				[
-					"response",
-					"responses",
-					"answer",
-					"answers",
-					"reply",
-					"replies",
-				].includes(subcommand)
+				["response", "responses", "answer", "answers", "reply", "replies"].includes(
+					subcommand,
+				)
 			) {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
@@ -1435,10 +1454,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				config.showOriginal = value === "on";
 				persist();
-				ctx.ui.notify(
-					`prompt-translate original prompt display ${value}`,
-					"info",
-				);
+				ctx.ui.notify(`prompt-translate original prompt display ${value}`, "info");
 				return;
 			}
 			if (subcommand === "balance") {
@@ -1525,11 +1541,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("input", async (event, ctx) => {
 		sessionCtx = ctx;
 		refreshBalanceStatus(ctx);
-		if (
-			!config.enabled ||
-			event.source === "extension" ||
-			event.images?.length
-		) {
+		if (!config.enabled || event.source === "extension" || event.images?.length) {
 			return { action: "continue" };
 		}
 		// /goal commands: translate only the objective text, keep the command
@@ -1615,9 +1627,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("context", (event) => {
 		if (!config.enabled || finalTranslationByDisplayedText.size === 0) return;
-		const messages = event.messages.map(
-			replaceDisplayedAssistantTextWithEnglish,
-		);
+		const messages = event.messages.map(replaceDisplayedAssistantTextWithEnglish);
 		if (messages.some((message, index) => message !== event.messages[index]))
 			return { messages };
 	});
@@ -1637,9 +1647,7 @@ export default function (pi: ExtensionAPI) {
 			.map((part) => part.name);
 		const goalTerminal = toolNames.some(
 			(name) =>
-				name === "goal_complete" ||
-				name === "goal_blocked" ||
-				name === "goal_wait",
+				name === "goal_complete" || name === "goal_blocked" || name === "goal_wait",
 		);
 		// Do not translate ordinary tool-calling assistant messages. Keep the pending
 		// translation request alive so the final work briefing after tool execution is translated.

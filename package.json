@@ -1,6 +1,6 @@
 {
   "name": "pi-prompt-translate-czk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Pi package that translates user prompts to English and translates final assistant replies back to a configured language. Fork with CZK balance/rate status, global config, and pi-at-words integration.",
   "type": "module",
   "license": "MIT",
@@ -25,8 +25,7 @@
   "files": [
     "README*.md",
     "LICENSE",
-    "index.ts",
-    "prompts.ts",
+    "*.ts",
     "package.json"
   ],
   "scripts": {

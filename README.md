@@ -142,3 +142,9 @@ restores the defaults:
   `OPENROUTER_API_KEY` or the key of your OpenRouter translate model.
 - `:batch` model variants on OpenRouter are ~50% cheaper and fine for
   translation latency.
+
+## Credits
+
+Fork of [05kim/pi-prompt-translate](https://github.com/05kim/pi-prompt-translate) (MIT).
+Fork additions: CZK balance/exchange-rate status, `--global` config persistence,
+prompt-builder refactor, and [pi-at-words](https://github.com/mastnacek/pi-at-words) integration.

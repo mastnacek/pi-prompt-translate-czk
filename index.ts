@@ -139,19 +139,24 @@ let sessionCostUsd = 0;
 type BalanceInfo = { remaining: number; total: number; used: number };
 
 // --- pi-at-words integration ------------------------------------------------
-// Pink highlight for confirmed ?words (owned by pi-at-words). Word set arrives
-// via the shared extension event bus; plugin absent = no-op passthrough.
+// Highlight colors owned by pi-at-words: pink = confirmed ?words, green = @mentions.
+// Word set arrives via the shared extension event bus; plugin absent = no-op passthrough.
 const AT_WORDS_PINK = "\x1b[1m\x1b[38;2;255;95;215m";
 const AT_WORDS_PINK_OFF = "\x1b[22m\x1b[39m";
+const AT_WORDS_GREEN = "\x1b[1m\x1b[38;2;0;255;102m";
+const AT_WORDS_GREEN_OFF = "\x1b[22m\x1b[39m";
 // Mention paths (`@src/foo.ts`, `@"quoted path"`) — same source pattern as pi-at-words.
 const AT_WORDS_MENTION_SRC = String.raw`@"[^"\n]+"|@[\w][\w./-]*`;
 let atWordsRe: RegExp | null = null;
 
-function pinkAtWords(text: string): string {
+function styleAtWords(text: string): string {
 	if (atWordsRe === null) return text;
 	return text.replace(
 		atWordsRe,
-		(m) => `${AT_WORDS_PINK}${m}${AT_WORDS_PINK_OFF}`,
+		(m) =>
+			m.startsWith("@")
+				? `${AT_WORDS_GREEN}${m}${AT_WORDS_GREEN_OFF}`
+				: `${AT_WORDS_PINK}${m}${AT_WORDS_PINK_OFF}`,
 	);
 }
 
@@ -1237,7 +1242,7 @@ export default function (pi: ExtensionAPI) {
 			const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
 			box.addChild(
 				new Text(
-					`${theme.fg("customMessageLabel", "original:")}\n${theme.fg("customMessageText", pinkAtWords(source))}`,
+					`${theme.fg("customMessageLabel", "original:")}\n${theme.fg("customMessageText", styleAtWords(source))}`,
 				),
 			);
 			return box;

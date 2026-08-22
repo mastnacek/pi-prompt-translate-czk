@@ -104,7 +104,7 @@ export const DEFAULT_CONFIG: TranslateConfig = {
 	enabled: true,
 	translateResponses: true,
 	targetLanguage: "Czech",
-	translateModel: "google/gemini-3.5-flash-lite",
+	translateModel: "openrouter/google/gemini-3.5-flash-lite",
 	translateReasoning: true,
 	boost: "off",
 	showOriginal: true,

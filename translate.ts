@@ -203,17 +203,21 @@ export async function translate(
 	const makeDoCall =
 		(reasoning: ThinkingLevel | undefined) => (): Promise<AssistantMessage> => {
 			const opts = makeOptions(reasoning);
-			return shouldUseInstrumentedTranslation
-				? instrumentedCompleteSimple(model, llmContext, {
-						...opts,
-						trace: {
-							name: "prompt-translation",
-							extension: "pi-prompt-translate",
-							purpose,
-							metadata: { targetLanguage },
-						},
-					})
-				: completeSimple(model, llmContext, opts);
+			if (shouldUseInstrumentedTranslation) {
+				return instrumentedCompleteSimple(model, llmContext, {
+					...opts,
+					trace: {
+						name: "prompt-translation",
+						extension: "pi-prompt-translate",
+						purpose,
+						metadata: { targetLanguage },
+					},
+				});
+			}
+			if (ctx.modelRegistry && typeof ctx.modelRegistry.complete === "function") {
+				return ctx.modelRegistry.complete(model, llmContext, opts as never);
+			}
+			return completeSimple(model, llmContext, opts);
 		};
 
 	let doCall = makeDoCall(thinkOn ? TRANSLATE_REASONING_LEVEL : undefined);

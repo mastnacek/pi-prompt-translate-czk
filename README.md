@@ -126,7 +126,7 @@ restores the defaults:
   "enabled": true,
   "translateResponses": true,
   "targetLanguage": "Czech",
-  "translateModel": "openrouter/google/gemini-3.5-flash-lite",
+  "translateModel": "current",
   "translateReasoning": true,
   "boost": "off",
   "showOriginal": true

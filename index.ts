@@ -245,9 +245,111 @@ export default function (pi: ExtensionAPI) {
 		updateTranslateStatus(ctx);
 	});
 
+	const TRANSLATE_TOGGLE_DOCS: Record<string, string> = {
+		on: "zapne překlad promptů do angličtiny",
+		off: "vypne překlad promptů",
+		status: "zobrazí podrobný stav překladu a zůstatek",
+		input: "přepínač překladu uživatelských promptů (on/off)",
+		responses: "přepínač překladu odpovědí asistenta zpět (on/off)",
+		lang: "cílový jazyk pro odpovědi (např. Czech, German)",
+		model: "model pro překlad (current | default | provider/model)",
+		think: "přepínač reasoning/thinking pro překladový model (on/off)",
+		boost: "úroveň vylepšení promptu (off | on | plus | mega)",
+		original: "zobrazení původního promptu nad překladem (on/off)",
+		balance: "zůstatek OpenRouter kreditu a kurz CZK (balance refresh)",
+		debug: "podrobné logování překladu do UI (on/off)",
+		global: "správa globální konfigurace (show | off)",
+		reset: "resetuje všechna nastavení na výchozí hodnoty",
+		help: "zobrazí podrobnou nápovědu",
+	};
+
 	pi.registerCommand("prompt-translate", {
 		description:
-			"Translate prompts to English and optionally translate final replies back to the configured language.",
+			"pi-prompt-translate: překlad promptů do EN a odpovědí zpět, CZK zůstatek, prompt boost",
+		getArgumentCompletions: (prefix: string) => {
+			const tokens = prefix.split(/\s+/).filter(Boolean);
+			const trailingSpace = /\s$/.test(prefix);
+
+			// Druhé slovo — kontextové dokončování podle podpříkazu
+			if (tokens.length > 1 || (trailingSpace && tokens.length === 1)) {
+				const cmd = tokens[0].toLowerCase();
+				const arg = (tokens.length > 1 ? tokens[1] : "").toLowerCase();
+
+				if (["input", "responses", "response", "think", "thinking", "original", "debug"].includes(cmd)) {
+					const items = [
+						{ value: "on", label: `${cmd} on`, description: "zapnout" },
+						{ value: "off", label: `${cmd} off`, description: "vypnout" },
+					];
+					const filtered = items.filter((i) => i.value.startsWith(arg));
+					return filtered.length > 0 ? filtered : null;
+				}
+
+				if (cmd === "boost") {
+					const items = [
+						{ value: "off", label: "boost off", description: "vypnuto (přímý překlad)" },
+						{ value: "on", label: "boost on", description: "jemné vyjasnění (clarity edit)" },
+						{ value: "plus", label: "boost plus", description: "imperativ + lehká struktura" },
+						{ value: "mega", label: "boost mega", description: "plné přeformulování na číslované úkoly" },
+					];
+					const filtered = items.filter((i) => i.value.startsWith(arg));
+					return filtered.length > 0 ? filtered : null;
+				}
+
+				if (cmd === "balance") {
+					const items = [
+						{ value: "refresh", label: "balance refresh", description: "vynutit načtení kurzu ČNB a kreditu OpenRouter" },
+					];
+					const filtered = items.filter((i) => i.value.startsWith(arg));
+					return filtered.length > 0 ? filtered : null;
+				}
+
+				if (cmd === "global") {
+					const items = [
+						{ value: "show", label: "global show", description: "zobrazit obsah globálního konfiguračního souboru" },
+						{ value: "off", label: "global off", description: "smazat globální konfiguraci (použít výchozí)" },
+					];
+					const filtered = items.filter((i) => i.value.startsWith(arg));
+					return filtered.length > 0 ? filtered : null;
+				}
+
+				if (cmd === "model") {
+					const items = [
+						{ value: "current", label: "model current", description: "použít aktuální model konverzace" },
+						{ value: "default", label: "model default", description: "použít výchozí překladový model" },
+					];
+					const filtered = items.filter((i) => i.value.startsWith(arg));
+					return filtered.length > 0 ? filtered : null;
+				}
+
+				if (["lang", "language", "target"].includes(cmd)) {
+					const languages = [
+						{ value: "Czech", description: "čeština" },
+						{ value: "English", description: "angličtina" },
+						{ value: "German", description: "němčina" },
+						{ value: "Slovak", description: "slovenština" },
+						{ value: "Polish", description: "polština" },
+						{ value: "French", description: "francouzština" },
+						{ value: "Spanish", description: "španělština" },
+					];
+					const items = languages.map((l) => ({
+						value: l.value,
+						label: `${cmd} ${l.value}`,
+						description: l.description,
+					}));
+					const filtered = items.filter((i) => i.value.toLowerCase().startsWith(arg));
+					return filtered.length > 0 ? filtered : null;
+				}
+
+				return null;
+			}
+
+			// První slovo — podpříkazy
+			const typed = (tokens[0] ?? "").toLowerCase();
+			const items = Object.entries(TRANSLATE_TOGGLE_DOCS)
+				.filter(([key]) => key.startsWith(typed))
+				.map(([value, description]) => ({ value, label: value, description }));
+			return items.length > 0 ? items : null;
+		},
 		handler: async (args, ctx) => {
 			const config = state.config;
 			// "--global" can appear anywhere in the args: the change also persists
@@ -259,8 +361,34 @@ export default function (pi: ExtensionAPI) {
 				persistConfig(pi);
 				if (writeGlobal) saveGlobalConfig();
 			};
-			if (!subcommand || subcommand === "status") {
+			if (subcommand === "status") {
 				ctx.ui.notify(await statusText(ctx), "info");
+				return;
+			}
+			if (!subcommand || subcommand === "help") {
+				const effectiveModel = getEffectiveTranslateModel();
+				const helpText = [
+					`pi-prompt-translate — stav: vstupy ${config.enabled ? "ON" : "OFF"}, odpovědi ${config.translateResponses ? "ON" : "OFF"}`,
+					"Překládá české prompty do angličtiny pro vyšší kvalitu uvažování LLM a volitelně překládá odpovědi zpět.",
+					"",
+					"Příkazy:",
+					"/prompt-translate                   — tato nápověda + stav",
+					"/prompt-translate on|off            — hlavní vypínač překladu promptů",
+					"/prompt-translate responses on|off  — překlad odpovědí asistenta zpět",
+					"/prompt-translate lang <jazyk>      — cílový jazyk (např. Czech)",
+					"/prompt-translate boost off|on|plus|mega — úroveň vylepšení promptu",
+					"/prompt-translate model <model>     — model pro překlad (current|default|<prov>/<mod>)",
+					"/prompt-translate think on|off      — uvažování (reasoning) překladového modelu",
+					"/prompt-translate original on|off   — zobrazení původního českého promptu",
+					"/prompt-translate balance [refresh] — zůstatek na OpenRouter a kurz ČNB",
+					"/prompt-translate global show|off   — trvalá globální konfigurace pro všechna sezení",
+					"/prompt-translate reset             — obnoví výchozí nastavení",
+					"Tip: přidejte --global k jakémukoli podpříkazu pro trvalé uložení.",
+					"",
+					`Nastavení: cíl=${config.targetLanguage} | boost=${config.boost} | model=${effectiveModel.setting} | think=${config.translateReasoning ? "ON" : "OFF"}`,
+					`Cena sezení: $${state.sessionCostUsd.toFixed(4)}`,
+				].join("\n");
+				ctx.ui.notify(helpText, "info");
 				return;
 			}
 			if (subcommand === "on" || subcommand === "enable") {

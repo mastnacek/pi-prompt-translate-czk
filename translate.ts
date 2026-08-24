@@ -185,7 +185,7 @@ export async function translate(
 	const thinkOn = config.translateReasoning && model.reasoning === true;
 	const makeOptions = (
 		reasoning: ThinkingLevel | undefined,
-	): SimpleStreamOptions => ({
+	): SimpleStreamOptions & { reasoningEffort?: ThinkingLevel } => ({
 		apiKey,
 		headers,
 		env,
@@ -195,6 +195,7 @@ export async function translate(
 			!!reasoning,
 		),
 		reasoning,
+		reasoningEffort: reasoning,
 		thinkingBudgets: reasoning ? TRANSLATE_REASONING_BUDGET : undefined,
 		signal: ctx.signal,
 		sessionId: ctx.sessionManager.getSessionId(),
@@ -204,66 +205,106 @@ export async function translate(
 	const shouldUseInstrumentedTranslation =
 		purpose === "prompt" && instrumentedCompleteSimple;
 	const makeDoCall =
-		(reasoning: ThinkingLevel | undefined) => (): Promise<AssistantMessage> => {
+		(reasoning: ThinkingLevel | undefined) =>
+		async (): Promise<AssistantMessage> => {
 			const opts = makeOptions(reasoning);
-			if (shouldUseInstrumentedTranslation) {
-				return instrumentedCompleteSimple(model, llmContext, {
-					...opts,
-					trace: {
-						name: "prompt-translation",
-						extension: "pi-prompt-translate",
-						purpose,
-						metadata: { targetLanguage },
+			try {
+				if (shouldUseInstrumentedTranslation) {
+					return await instrumentedCompleteSimple(model, llmContext, {
+						...opts,
+						trace: {
+							name: "prompt-translation",
+							extension: "pi-prompt-translate",
+							purpose,
+							metadata: { targetLanguage },
+						},
+					});
+				}
+				const registry = ctx.modelRegistry as
+					| {
+							completeSimple?: (
+								model: Model<Api>,
+								context: Context,
+								options?: SimpleStreamOptions,
+							) => Promise<AssistantMessage>;
+							complete?: (
+								model: Model<Api>,
+								context: Context,
+								options?: unknown,
+							) => Promise<AssistantMessage>;
+					  }
+					| undefined;
+				if (registry && typeof registry.completeSimple === "function") {
+					return await registry.completeSimple(model, llmContext, opts);
+				}
+				if (registry && typeof registry.complete === "function") {
+					return await registry.complete(model, llmContext, opts);
+				}
+				return await completeSimple(model, llmContext, opts);
+			} catch (error) {
+				return {
+					role: "assistant",
+					content: [],
+					api: model.api,
+					provider: model.provider,
+					model: model.id,
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 					},
-				});
+					stopReason: "error",
+					errorMessage: error instanceof Error ? error.message : String(error),
+					timestamp: Date.now(),
+				};
 			}
-			if (ctx.modelRegistry && typeof ctx.modelRegistry.complete === "function") {
-				return ctx.modelRegistry.complete(model, llmContext, opts as never);
-			}
-			return completeSimple(model, llmContext, opts);
 		};
 
-	let doCall = makeDoCall(thinkOn ? TRANSLATE_REASONING_LEVEL : undefined);
-	let response = await doCall();
+	let currentReasoning: ThinkingLevel | undefined = thinkOn
+		? TRANSLATE_REASONING_LEVEL
+		: undefined;
+	let response = await makeDoCall(currentReasoning)();
+
 	if (
 		(response.stopReason === "error" || response.stopReason === "aborted") &&
 		isTransientError(response.errorMessage)
 	) {
 		debug(ctx, "transient translation error; retrying once in 1s");
 		await new Promise((r) => setTimeout(r, 1000));
-		response = await doCall();
-	}
-	// Thinking fallback: some providers reject reasoning requests (400 mandatory
-	// reasoning, max_tokens too small for thinking, unsupported effort level, ...).
-	// Retry once with thinking fully off so translation never hard-fails.
-	if (
-		thinkOn &&
-		(response.stopReason === "error" || response.stopReason === "aborted") &&
-		/reason|thinking|max_?tokens|mandatory|bad request|400/i.test(
-			response.errorMessage ?? "",
-		)
-	) {
-		debug(ctx, "translation error with thinking on; retrying without thinking");
-		doCall = makeDoCall(undefined);
-		response = await doCall();
+		response = await makeDoCall(currentReasoning)();
 	}
 
-	// Reasoning-mandatory fallback: some providers (OpenRouter reasoning models)
-	// require reasoning to be enabled. If we tried without and got a 400 about
-	// mandatory reasoning, retry once with thinking on.
+	const errMsg = response.errorMessage ?? "";
+	const isMandatoryReasoningError =
+		/reasoning is mandatory|mandatory.*reasoning|reasoning.*cannot be disabled/i.test(
+			errMsg,
+		);
+
+	// If provider requires reasoning but we called without (or reasoning was stripped)
 	if (
-		!thinkOn &&
 		(response.stopReason === "error" || response.stopReason === "aborted") &&
-		/reasoning is mandatory|mandatory.*reasoning|reasoning.*required|reasoning.*cannot be disabled/i.test(
-			response.errorMessage ?? "",
-		)
+		isMandatoryReasoningError
 	) {
 		debug(
 			ctx,
 			"translation error: reasoning mandatory; retrying with thinking on",
 		);
-		doCall = makeDoCall(TRANSLATE_REASONING_LEVEL);
-		response = await doCall();
+		currentReasoning = TRANSLATE_REASONING_LEVEL;
+		response = await makeDoCall(currentReasoning)();
+	} else if (
+		currentReasoning &&
+		(response.stopReason === "error" || response.stopReason === "aborted") &&
+		/thinking|max_?tokens|unsupported.*reasoning|invalid.*reasoning|bad request|400/i.test(
+			errMsg,
+		) &&
+		!isMandatoryReasoningError
+	) {
+		debug(ctx, "translation error with thinking on; retrying without thinking");
+		currentReasoning = undefined;
+		response = await makeDoCall(currentReasoning)();
 	}
 
 	if (response.stopReason === "error" || response.stopReason === "aborted") {

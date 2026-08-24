@@ -1,14 +1,24 @@
 // types.ts — shared types, entry-type constants, and default config.
 // Pure data: no imports from other modules (leaf of the dependency graph).
 
-import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	Api,
+	AssistantMessage,
+	Context,
+	Model,
+	SimpleStreamOptions,
+} from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const CONFIG_ENTRY_TYPE = "pi-prompt-translate-config";
 export const STATE_ENTRY_TYPE = "pi-prompt-translate-state";
-export const FINAL_TRANSLATION_ENTRY_TYPE = "pi-prompt-translate-final-translation";
+export const FINAL_TRANSLATION_ENTRY_TYPE =
+	"pi-prompt-translate-final-translation";
 
-export type TranslateModelSetting = "current" | "default" | `${string}/${string}`;
+export type TranslateModelSetting =
+	| "current"
+	| "default"
+	| `${string}/${string}`;
 
 /** Prompt enhancement level: "off" = plain translation, "boost" = faithful clarity
  *  edit, "plus" = imperative + light structure with strict fidelity,
@@ -104,7 +114,7 @@ export const DEFAULT_CONFIG: TranslateConfig = {
 	enabled: true,
 	translateResponses: true,
 	targetLanguage: "Czech",
-	translateModel: "current",
+	translateModel: "openrouter/google/gemini-3.5-flash-lite",
 	translateReasoning: true,
 	boost: "off",
 	showOriginal: true,

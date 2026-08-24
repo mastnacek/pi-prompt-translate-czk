@@ -23,12 +23,12 @@ import {
 import { getUsdToCzkRate } from "./balance";
 import { debug, formatUsage, updateTranslateStatus } from "./status";
 import { state } from "./state";
-import {
-	type ExtensionContextWithCompleteSimple,
-	type ModelWithAuth,
-	type ProtectedSegment,
-	type ProtectedText,
-	type TranslationResult,
+import type {
+	ExtensionContextWithCompleteSimple,
+	ModelWithAuth,
+	ProtectedSegment,
+	ProtectedText,
+	TranslationResult,
 } from "./types";
 import {
 	PROMPT_BOOST_SYSTEM_PROMPT,
@@ -116,7 +116,10 @@ export function restoreProtectedSegments(
 	return restored;
 }
 
-export function createTranslationContext(systemPrompt: string, text: string): Context {
+export function createTranslationContext(
+	systemPrompt: string,
+	text: string,
+): Context {
 	return {
 		systemPrompt,
 		// Omit volatile timestamps from translation-only requests to improve provider prompt-cache hits.
@@ -242,6 +245,24 @@ export async function translate(
 	) {
 		debug(ctx, "translation error with thinking on; retrying without thinking");
 		doCall = makeDoCall(undefined);
+		response = await doCall();
+	}
+
+	// Reasoning-mandatory fallback: some providers (OpenRouter reasoning models)
+	// require reasoning to be enabled. If we tried without and got a 400 about
+	// mandatory reasoning, retry once with thinking on.
+	if (
+		!thinkOn &&
+		(response.stopReason === "error" || response.stopReason === "aborted") &&
+		/reasoning is mandatory|mandatory.*reasoning|reasoning.*required|reasoning.*cannot be disabled/i.test(
+			response.errorMessage ?? "",
+		)
+	) {
+		debug(
+			ctx,
+			"translation error: reasoning mandatory; retrying with thinking on",
+		);
+		doCall = makeDoCall(TRANSLATE_REASONING_LEVEL);
 		response = await doCall();
 	}
 

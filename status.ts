@@ -7,10 +7,15 @@ import {
 	GLOBAL_CONFIG_FILE,
 	getEffectiveTranslateModel,
 	modelLabel,
+	readDefaultModel,
 	resolveConfiguredModel,
 	TRANSLATE_REASONING_LEVEL,
 } from "./config";
-import { cachedBalance, getOpenRouterBalance, getUsdToCzkRate } from "./balance";
+import {
+	cachedBalance,
+	getOpenRouterBalance,
+	getUsdToCzkRate,
+} from "./balance";
 import { state } from "./state";
 import type { TranslationUsage, TranslateModelSetting } from "./types";
 
@@ -45,12 +50,65 @@ export function fmtSmallAmount(n: number): string {
 	return n.toFixed(decimals);
 }
 
-// Short, readable model id for the status bar: drop the provider/openrouter
-// prefix, keep the special "current"/"default" settings verbatim.
+const PROVIDER_SHORT_CODES: Record<string, string> = {
+	openrouter: "OR",
+	google: "G",
+	anthropic: "A",
+	openai: "OAI",
+	"openai-codex": "OAI",
+	ollama: "OLL",
+	deepseek: "DS",
+	mistral: "M",
+	groq: "GROQ",
+	cerebras: "CB",
+	xai: "XAI",
+	"kimi-coding": "KIMI",
+	moonshotai: "KIMI",
+	"zai-coding-cn": "ZAI",
+	zai: "ZAI",
+};
+
+// Compact provider abbreviation for the status bar.
+export function providerShortCode(provider: string): string {
+	const p = provider.toLowerCase();
+	const mapped = PROVIDER_SHORT_CODES[p];
+	if (mapped) return mapped;
+	return provider.length <= 4
+		? provider.toUpperCase()
+		: provider.slice(0, 3).toUpperCase();
+}
+
+// Short, readable model label for the status bar with compact provider code:
+// e.g. "openrouter/google/gemini-3.7-flash" -> "OR:gemini-3.7-flash"
+//      "google/gemini-3.5-flash-lite"      -> "G:gemini-3.5-flash-lite"
 function shortModelLabel(setting: TranslateModelSetting): string {
-	if (setting === "current" || setting === "default") return setting;
-	const slash = setting.lastIndexOf("/");
-	return slash >= 0 ? setting.slice(slash + 1) : setting;
+	if (setting === "current") {
+		const current = state.sessionCtx?.model as Model<Api> | undefined;
+		if (current?.provider && current.id) {
+			const p = providerShortCode(current.provider);
+			const slash = current.id.lastIndexOf("/");
+			const m = slash >= 0 ? current.id.slice(slash + 1) : current.id;
+			return `${p}:${m}`;
+		}
+		return "current";
+	}
+	if (setting === "default") {
+		const { provider, model } = readDefaultModel();
+		if (provider && model) {
+			const p = providerShortCode(provider);
+			const slash = model.lastIndexOf("/");
+			const m = slash >= 0 ? model.slice(slash + 1) : model;
+			return `${p}:${m}`;
+		}
+		return "default";
+	}
+	const firstSlash = setting.indexOf("/");
+	if (firstSlash === -1) return setting;
+	const provider = setting.slice(0, firstSlash);
+	const p = providerShortCode(provider);
+	const lastSlash = setting.lastIndexOf("/");
+	const modelName = setting.slice(lastSlash + 1);
+	return `${p}:${modelName}`;
 }
 
 // Single compact, color-coded status segment: translate state, thinking, model,

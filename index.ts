@@ -6,7 +6,11 @@
 
 import { existsSync } from "node:fs";
 import type { ToolCall } from "@earendil-works/pi-ai";
-import type { ContextEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ContextEvent,
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import {
 	clearBalanceCache,
@@ -75,12 +79,10 @@ let atWordsRe: RegExp | null = null;
 
 function styleAtWords(text: string): string {
 	if (atWordsRe === null) return text;
-	return text.replace(
-		atWordsRe,
-		(m) =>
-			m.startsWith("@")
-				? `${AT_WORDS_GREEN}${m}${AT_WORDS_GREEN_OFF}`
-				: `${AT_WORDS_PINK}${m}${AT_WORDS_PINK_OFF}`,
+	return text.replace(atWordsRe, (m) =>
+		m.startsWith("@")
+			? `${AT_WORDS_GREEN}${m}${AT_WORDS_GREEN_OFF}`
+			: `${AT_WORDS_PINK}${m}${AT_WORDS_PINK_OFF}`,
 	);
 }
 
@@ -275,7 +277,17 @@ export default function (pi: ExtensionAPI) {
 				const cmd = tokens[0].toLowerCase();
 				const arg = (tokens.length > 1 ? tokens[1] : "").toLowerCase();
 
-				if (["input", "responses", "response", "think", "thinking", "original", "debug"].includes(cmd)) {
+				if (
+					[
+						"input",
+						"responses",
+						"response",
+						"think",
+						"thinking",
+						"original",
+						"debug",
+					].includes(cmd)
+				) {
 					const items = [
 						{ value: "on", label: `${cmd} on`, description: "zapnout" },
 						{ value: "off", label: `${cmd} off`, description: "vypnout" },
@@ -286,10 +298,26 @@ export default function (pi: ExtensionAPI) {
 
 				if (cmd === "boost") {
 					const items = [
-						{ value: "off", label: "boost off", description: "vypnuto (přímý překlad)" },
-						{ value: "on", label: "boost on", description: "jemné vyjasnění (clarity edit)" },
-						{ value: "plus", label: "boost plus", description: "imperativ + lehká struktura" },
-						{ value: "mega", label: "boost mega", description: "plné přeformulování na číslované úkoly" },
+						{
+							value: "off",
+							label: "boost off",
+							description: "vypnuto (přímý překlad)",
+						},
+						{
+							value: "on",
+							label: "boost on",
+							description: "jemné vyjasnění (clarity edit)",
+						},
+						{
+							value: "plus",
+							label: "boost plus",
+							description: "imperativ + lehká struktura",
+						},
+						{
+							value: "mega",
+							label: "boost mega",
+							description: "plné přeformulování na číslované úkoly",
+						},
 					];
 					const filtered = items.filter((i) => i.value.startsWith(arg));
 					return filtered.length > 0 ? filtered : null;
@@ -297,7 +325,11 @@ export default function (pi: ExtensionAPI) {
 
 				if (cmd === "balance") {
 					const items = [
-						{ value: "refresh", label: "balance refresh", description: "vynutit načtení kurzu ČNB a kreditu OpenRouter" },
+						{
+							value: "refresh",
+							label: "balance refresh",
+							description: "vynutit načtení kurzu ČNB a kreditu OpenRouter",
+						},
 					];
 					const filtered = items.filter((i) => i.value.startsWith(arg));
 					return filtered.length > 0 ? filtered : null;
@@ -305,8 +337,16 @@ export default function (pi: ExtensionAPI) {
 
 				if (cmd === "global") {
 					const items = [
-						{ value: "show", label: "global show", description: "zobrazit obsah globálního konfiguračního souboru" },
-						{ value: "off", label: "global off", description: "smazat globální konfiguraci (použít výchozí)" },
+						{
+							value: "show",
+							label: "global show",
+							description: "zobrazit obsah globálního konfiguračního souboru",
+						},
+						{
+							value: "off",
+							label: "global off",
+							description: "smazat globální konfiguraci (použít výchozí)",
+						},
 					];
 					const filtered = items.filter((i) => i.value.startsWith(arg));
 					return filtered.length > 0 ? filtered : null;
@@ -314,8 +354,16 @@ export default function (pi: ExtensionAPI) {
 
 				if (cmd === "model") {
 					const items = [
-						{ value: "current", label: "model current", description: "použít aktuální model konverzace" },
-						{ value: "default", label: "model default", description: "použít výchozí překladový model" },
+						{
+							value: "current",
+							label: "model current",
+							description: "použít aktuální model konverzace",
+						},
+						{
+							value: "default",
+							label: "model default",
+							description: "použít výchozí překladový model",
+						},
 					];
 					const filtered = items.filter((i) => i.value.startsWith(arg));
 					return filtered.length > 0 ? filtered : null;
@@ -336,7 +384,9 @@ export default function (pi: ExtensionAPI) {
 						label: `${cmd} ${l.value}`,
 						description: l.description,
 					}));
-					const filtered = items.filter((i) => i.value.toLowerCase().startsWith(arg));
+					const filtered = items.filter((i) =>
+						i.value.toLowerCase().startsWith(arg),
+					);
 					return filtered.length > 0 ? filtered : null;
 				}
 
@@ -433,7 +483,8 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				config.translateResponses = value === "on";
-				if (state.pending) state.pending.translateResponses = config.translateResponses;
+				if (state.pending)
+					state.pending.translateResponses = config.translateResponses;
 				persist();
 				ctx.ui.notify(`prompt-translate responses ${value}`, "info");
 				return;
@@ -665,7 +716,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("input", async (event, ctx) => {
 		state.sessionCtx = ctx;
 		refreshBalanceStatus(ctx);
-		if (!state.config.enabled || event.source === "extension" || event.images?.length) {
+		if (
+			!state.config.enabled ||
+			event.source === "extension" ||
+			event.images?.length
+		) {
 			return { action: "continue" };
 		}
 		// /goal commands: translate only the objective text, keep the command
@@ -750,7 +805,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("context", (event) => {
-		if (!state.config.enabled || finalTranslationByDisplayedText.size === 0) return;
+		if (!state.config.enabled || finalTranslationByDisplayedText.size === 0)
+			return;
 		const messages = event.messages.map(replaceDisplayedAssistantTextWithEnglish);
 		if (messages.some((message, index) => message !== event.messages[index]))
 			return { messages };

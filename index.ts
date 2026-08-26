@@ -271,11 +271,11 @@ export default function (pi: ExtensionAPI) {
 		getArgumentCompletions: (prefix: string) => {
 			const tokens = prefix.split(/\s+/).filter(Boolean);
 			const trailingSpace = /\s$/.test(prefix);
+			const normalizedPrefix = tokens.join(" ").toLowerCase();
 
 			// Druhé slovo — kontextové dokončování podle podpříkazu
 			if (tokens.length > 1 || (trailingSpace && tokens.length === 1)) {
 				const cmd = tokens[0].toLowerCase();
-				const arg = (tokens.length > 1 ? tokens[1] : "").toLowerCase();
 
 				if (
 					[
@@ -289,83 +289,93 @@ export default function (pi: ExtensionAPI) {
 					].includes(cmd)
 				) {
 					const items = [
-						{ value: "on", label: `${cmd} on`, description: "zapnout" },
-						{ value: "off", label: `${cmd} off`, description: "vypnout" },
+						{ value: `${cmd} on`, label: `${cmd} on`, description: "zapnout" },
+						{ value: `${cmd} off`, label: `${cmd} off`, description: "vypnout" },
 					];
-					const filtered = items.filter((i) => i.value.startsWith(arg));
+					const filtered = items.filter((i) =>
+						i.value.toLowerCase().startsWith(normalizedPrefix),
+					);
 					return filtered.length > 0 ? filtered : null;
 				}
 
 				if (cmd === "boost") {
 					const items = [
 						{
-							value: "off",
+							value: "boost off",
 							label: "boost off",
 							description: "vypnuto (přímý překlad)",
 						},
 						{
-							value: "on",
+							value: "boost on",
 							label: "boost on",
 							description: "jemné vyjasnění (clarity edit)",
 						},
 						{
-							value: "plus",
+							value: "boost plus",
 							label: "boost plus",
 							description: "imperativ + lehká struktura",
 						},
 						{
-							value: "mega",
+							value: "boost mega",
 							label: "boost mega",
 							description: "plné přeformulování na číslované úkoly",
 						},
 					];
-					const filtered = items.filter((i) => i.value.startsWith(arg));
+					const filtered = items.filter((i) =>
+						i.value.toLowerCase().startsWith(normalizedPrefix),
+					);
 					return filtered.length > 0 ? filtered : null;
 				}
 
 				if (cmd === "balance") {
 					const items = [
 						{
-							value: "refresh",
+							value: "balance refresh",
 							label: "balance refresh",
 							description: "vynutit načtení kurzu ČNB a kreditu OpenRouter",
 						},
 					];
-					const filtered = items.filter((i) => i.value.startsWith(arg));
+					const filtered = items.filter((i) =>
+						i.value.toLowerCase().startsWith(normalizedPrefix),
+					);
 					return filtered.length > 0 ? filtered : null;
 				}
 
 				if (cmd === "global") {
 					const items = [
 						{
-							value: "show",
+							value: "global show",
 							label: "global show",
 							description: "zobrazit obsah globálního konfiguračního souboru",
 						},
 						{
-							value: "off",
+							value: "global off",
 							label: "global off",
 							description: "smazat globální konfiguraci (použít výchozí)",
 						},
 					];
-					const filtered = items.filter((i) => i.value.startsWith(arg));
+					const filtered = items.filter((i) =>
+						i.value.toLowerCase().startsWith(normalizedPrefix),
+					);
 					return filtered.length > 0 ? filtered : null;
 				}
 
 				if (cmd === "model") {
 					const items = [
 						{
-							value: "current",
+							value: "model current",
 							label: "model current",
 							description: "použít aktuální model konverzace",
 						},
 						{
-							value: "default",
+							value: "model default",
 							label: "model default",
 							description: "použít výchozí překladový model",
 						},
 					];
-					const filtered = items.filter((i) => i.value.startsWith(arg));
+					const filtered = items.filter((i) =>
+						i.value.toLowerCase().startsWith(normalizedPrefix),
+					);
 					return filtered.length > 0 ? filtered : null;
 				}
 
@@ -380,12 +390,12 @@ export default function (pi: ExtensionAPI) {
 						{ value: "Spanish", description: "španělština" },
 					];
 					const items = languages.map((l) => ({
-						value: l.value,
+						value: `${cmd} ${l.value}`,
 						label: `${cmd} ${l.value}`,
 						description: l.description,
 					}));
 					const filtered = items.filter((i) =>
-						i.value.toLowerCase().startsWith(arg),
+						i.value.toLowerCase().startsWith(normalizedPrefix),
 					);
 					return filtered.length > 0 ? filtered : null;
 				}
@@ -396,7 +406,7 @@ export default function (pi: ExtensionAPI) {
 			// První slovo — podpříkazy
 			const typed = (tokens[0] ?? "").toLowerCase();
 			const items = Object.entries(TRANSLATE_TOGGLE_DOCS)
-				.filter(([key]) => key.startsWith(typed))
+				.filter(([key]) => key.toLowerCase().startsWith(typed))
 				.map(([value, description]) => ({ value, label: value, description }));
 			return items.length > 0 ? items : null;
 		},
@@ -405,8 +415,10 @@ export default function (pi: ExtensionAPI) {
 			// "--global" can appear anywhere in the args: the change also persists
 			// to the global config file, applying to all future sessions.
 			const tokens = args.trim().split(/\s+/).filter(Boolean);
-			const writeGlobal = tokens.includes("--global");
-			const [subcommand, ...rest] = tokens.filter((t) => t !== "--global");
+			const writeGlobal = tokens.some((t) => t.toLowerCase() === "--global");
+			const cleanTokens = tokens.filter((t) => t.toLowerCase() !== "--global");
+			const subcommand = (cleanTokens[0] ?? "").toLowerCase();
+			const rest = cleanTokens.slice(1);
 			const persist = () => {
 				persistConfig(pi);
 				if (writeGlobal) saveGlobalConfig();

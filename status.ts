@@ -13,6 +13,7 @@ import {
 } from "./config";
 import {
 	cachedBalance,
+	cachedUsdToCzkRate,
 	getOpenRouterBalance,
 	getUsdToCzkRate,
 } from "./balance";
@@ -144,11 +145,24 @@ function translateStatusText(): string {
 		);
 	}
 
-	// Group 3: Session translation cost & OpenRouter balance
-	const costGroup = [amber(`💰 $${fmtSmallAmount(state.sessionCostUsd)}`)];
+	// Group 3: Session translation cost & OpenRouter balance (with CZK conversion)
+	const rate = cachedUsdToCzkRate();
+	const costUsd = state.sessionCostUsd;
+	let costStr = `💰 $${fmtSmallAmount(costUsd)}`;
+	if (typeof rate === "number" && rate > 0) {
+		const costCzk = costUsd * rate;
+		costStr += ` / ${fmtSmallAmount(costCzk)} Kč`;
+	}
+	const costGroup = [amber(costStr)];
+
 	const bal = cachedBalance();
 	if (bal) {
-		costGroup.push(amber(`💳 OR $${bal.remaining.toFixed(2)}`));
+		let balStr = `💳 OR $${bal.remaining.toFixed(2)}`;
+		if (typeof rate === "number" && rate > 0) {
+			const balCzk = bal.remaining * rate;
+			balStr += ` / ${fmtSmallAmount(balCzk)} Kč`;
+		}
+		costGroup.push(amber(balStr));
 	}
 
 	return [

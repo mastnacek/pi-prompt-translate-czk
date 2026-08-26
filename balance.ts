@@ -117,3 +117,8 @@ export async function getOpenRouterBalance(
 export function cachedBalance(): BalanceInfo | undefined {
 	return balanceCache?.info;
 }
+
+/** Last cached USD→CZK rate (for status rendering without a fetch). */
+export function cachedUsdToCzkRate(): number | undefined {
+	return fxCache?.rate;
+}

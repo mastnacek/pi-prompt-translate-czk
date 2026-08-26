@@ -11,7 +11,7 @@
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import { getEffectiveTranslateModel } from "./config";
 import { formatCost } from "./status";
-import { translate } from "./translate";
+import { detectLanguageOrCode, translate } from "./translate";
 import { state } from "./state";
 import { STATE_ENTRY_TYPE } from "./types";
 
@@ -114,6 +114,18 @@ async function translateGoalCommandText(
 	if (!ctx) return text;
 	const goalCommand = extractGoalObjective(text);
 	if (!goalCommand?.objective) return text;
+
+	if (config.autodetect && config.boost === "off") {
+		const detection = detectLanguageOrCode(goalCommand.objective);
+		if (detection.isEnglishOrCode) {
+			state.pending = {
+				targetLanguage: config.targetLanguage,
+				translateResponses: config.translateResponses,
+			};
+			return text;
+		}
+	}
+
 	try {
 		const translated = await translate(
 			ctx,
@@ -138,7 +150,10 @@ async function translateGoalCommandText(
 			english: rebuilt,
 			targetLanguage: config.targetLanguage,
 			translateModel: getEffectiveTranslateModel().setting,
+			boost: config.boost,
 			usage: translated.usage,
+			costUsd: translated.costUsd,
+			costCzk: translated.costCzk,
 		});
 		return rebuilt;
 	} catch (error) {

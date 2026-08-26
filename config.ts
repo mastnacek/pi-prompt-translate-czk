@@ -147,6 +147,8 @@ export function normalizeConfig(value: Partial<TranslateConfig>): TranslateConfi
 					? "off"
 					: (value.boost ?? DEFAULT_CONFIG.boost),
 		showOriginal: value.showOriginal ?? DEFAULT_CONFIG.showOriginal,
+		diff: value.diff ?? DEFAULT_CONFIG.diff,
+		autodetect: value.autodetect ?? DEFAULT_CONFIG.autodetect,
 		debug: value.debug ?? DEFAULT_CONFIG.debug,
 	};
 }

@@ -42,6 +42,7 @@ import {
 import { state } from "./state";
 import {
 	createTranslationContext,
+	detectLanguageOrCode,
 	estimateTranslationMaxTokens,
 	getText,
 	hasToolCall,
@@ -212,17 +213,58 @@ export default function (pi: ExtensionAPI) {
 		);
 	});
 
-	// Render the original (untranslated) prompt above the translated user message.
+	// Render the original (untranslated) prompt or enhanced translation diff above the user message.
 	// STATE entries are appended in the input handler before pi creates the user
 	// message entry, so this box lands directly above the translated text. The
 	// entry is not part of the LLM context — display only.
-	pi.registerEntryRenderer<{ source?: string }>(
+	pi.registerEntryRenderer<{
+		source?: string;
+		english?: string;
+		boost?: BoostLevel;
+		usage?: TranslationUsage;
+		costUsd?: number;
+		costCzk?: number;
+	}>(
 		STATE_ENTRY_TYPE,
 		(entry, _options, theme) => {
-			if (!state.config.showOriginal) return undefined;
 			const source = entry.data?.source;
 			if (typeof source !== "string" || !source.trim()) return undefined;
-			// Theme-driven styling, with pi-at-words pink for confirmed ?words.
+
+			// If diff mode is on, render the full diff summary + token usage box
+			if (state.config.diff) {
+				const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
+				const boostBadge =
+					entry.data?.boost && entry.data.boost !== "off"
+						? ` [boost: ${entry.data.boost}]`
+						: "";
+				const usage = entry.data?.usage;
+				const tokStr =
+					usage?.totalTokens !== undefined
+						? ` · ${usage.totalTokens} tok (in: ${usage.input}, out: ${usage.output})`
+						: "";
+				const costStr =
+					entry.data?.costUsd !== undefined
+						? ` · ${formatCost(entry.data.costUsd, entry.data.costCzk)}`
+						: "";
+
+				const header =
+					theme.fg("accent", `🔄 Prompt Translation Diff${boostBadge}`) +
+					theme.fg("dim", `${tokStr}${costStr}`);
+
+				const originalSection = `${theme.fg("customMessageLabel", "Original (CZ):")}\n${theme.fg("customMessageText", styleAtWords(source))}`;
+				const englishSection =
+					entry.data?.english && entry.data.english.trim() !== source.trim()
+						? `\n\n${theme.fg("customMessageLabel", "Enhanced (EN):")}\n${theme.fg("customMessageText", entry.data.english)}`
+						: "";
+
+				box.addChild(
+					new Text(`${header}\n\n${originalSection}${englishSection}`),
+				);
+				return box;
+			}
+
+			// If diff mode is off, but showOriginal is on:
+			if (!state.config.showOriginal) return undefined;
 			const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
 			box.addChild(
 				new Text(
@@ -258,6 +300,8 @@ export default function (pi: ExtensionAPI) {
 		think: "přepínač reasoning/thinking pro překladový model (on/off)",
 		boost: "úroveň vylepšení promptu (off | on | plus | mega)",
 		original: "zobrazení původního promptu nad překladem (on/off)",
+		diff: "zobrazení porovnání původního a vylepšeného promptu + tokeny (on/off)",
+		detect: "automatická detekce angličtiny a kódu pro přeskočení překladu (on/off)",
 		balance: "zůstatek OpenRouter kreditu a kurz CZK (balance refresh)",
 		debug: "podrobné logování překladu do UI (on/off)",
 		global: "správa globální konfigurace (show | off)",
@@ -285,6 +329,9 @@ export default function (pi: ExtensionAPI) {
 						"think",
 						"thinking",
 						"original",
+						"diff",
+						"detect",
+						"autodetect",
 						"debug",
 					].includes(cmd)
 				) {
@@ -633,6 +680,37 @@ export default function (pi: ExtensionAPI) {
 				);
 				return;
 			}
+			if (subcommand === "diff") {
+				const value = rest[0];
+				if (value !== "on" && value !== "off") {
+					ctx.ui.notify("Usage: /prompt-translate diff on|off", "warning");
+					return;
+				}
+				config.diff = value === "on";
+				persist();
+				ctx.ui.notify(
+					`prompt-translate translation diff summary ${value}`,
+					"info",
+				);
+				return;
+			}
+			if (subcommand === "detect" || subcommand === "autodetect") {
+				const value = rest[0];
+				if (value !== "on" && value !== "off") {
+					ctx.ui.notify(
+						"Usage: /prompt-translate detect on|off — skips translation if prompt is already English or code",
+						"warning",
+					);
+					return;
+				}
+				config.autodetect = value === "on";
+				persist();
+				ctx.ui.notify(
+					`prompt-translate dynamic language detection ${value}`,
+					"info",
+				);
+				return;
+			}
 			if (["original", "showoriginal", "source"].includes(subcommand)) {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
@@ -691,7 +769,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (subcommand === "help") {
 				ctx.ui.notify(
-					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|plus|mega|original on|off|balance [refresh]|debug on|off|global [show|off]|reset — add --global to any subcommand to persist for all sessions",
+					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|plus|mega|diff on|off|detect on|off|original on|off|balance [refresh]|debug on|off|global [show|off]|reset — add --global to any subcommand to persist for all sessions",
 					"info",
 				);
 				return;
@@ -761,6 +839,22 @@ export default function (pi: ExtensionAPI) {
 			textToTranslate = event.text;
 		}
 
+		// Dynamic language and code detection:
+		if (state.config.autodetect && state.config.boost === "off") {
+			const detection = detectLanguageOrCode(textToTranslate);
+			if (detection.isEnglishOrCode) {
+				debug(
+					ctx,
+					`skipped translation: prompt detected as ${detection.reason}`,
+				);
+				state.pending = {
+					targetLanguage: state.config.targetLanguage,
+					translateResponses: state.config.translateResponses,
+				};
+				return { action: "continue" };
+			}
+		}
+
 		try {
 			const translated = await translate(
 				ctx,
@@ -777,17 +871,21 @@ export default function (pi: ExtensionAPI) {
 				targetLanguage: state.config.targetLanguage,
 				translateResponses: state.config.translateResponses,
 			};
+			const englishText = rebuild ? rebuild(translated.text) : translated.text;
 			pi.appendEntry(STATE_ENTRY_TYPE, {
 				at: new Date().toISOString(),
 				source: event.text,
-				english: rebuild ? rebuild(translated.text) : translated.text,
+				english: englishText,
 				targetLanguage: state.config.targetLanguage,
 				translateModel: getEffectiveTranslateModel().setting,
+				boost: state.config.boost,
 				usage: translated.usage,
+				costUsd: translated.costUsd,
+				costCzk: translated.costCzk,
 			});
 			return {
 				action: "transform",
-				text: rebuild ? rebuild(translated.text) : translated.text,
+				text: englishText,
 			};
 		} catch (error) {
 			ctx.ui.notify(

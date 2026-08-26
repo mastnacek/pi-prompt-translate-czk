@@ -43,6 +43,12 @@ export type TranslateConfig = {
 	/** When on, the original (untranslated) prompt is rendered above the translated
 	 *  user message in a box with a distinct background color. */
 	showOriginal: boolean;
+	/** When on, displays a side-by-side or stacked diff of the original vs enhanced
+	 *  prompt along with token usage and cost summary. */
+	diff: boolean;
+	/** When on, automatically detects if a prompt is already pure English or code
+	 *  and skips translation to save latency and tokens. */
+	autodetect: boolean;
 	debug: boolean;
 };
 
@@ -118,5 +124,7 @@ export const DEFAULT_CONFIG: TranslateConfig = {
 	translateReasoning: true,
 	boost: "off",
 	showOriginal: true,
+	diff: true,
+	autodetect: true,
 	debug: false,
 };

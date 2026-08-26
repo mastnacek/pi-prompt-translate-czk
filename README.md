@@ -50,6 +50,8 @@ Example (Czech input):
 /prompt-translate lang <language>            Target language for replies (default Czech)
 /prompt-translate model <m> [until DATE]     Set translate model; optional auto-expiry
 /prompt-translate boost off|on|plus|mega    Prompt enhancement level (see table above)
+/prompt-translate diff on|off                Show side-by-side prompt diff with token count and cost
+/prompt-translate detect on|off              Auto-skip translation if prompt is already English or code
 /prompt-translate think on|off               Use reasoning on the translate model (low effort, capped)
 /prompt-translate original on|off            Show the original prompt above the translated one
 /prompt-translate balance [refresh]          USD→CZK rate + OpenRouter credit balance

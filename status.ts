@@ -112,6 +112,16 @@ function shortModelLabel(setting: TranslateModelSetting): string {
 	return `${p}:${modelName}`;
 }
 
+// Balance alert thresholds (in USD):
+// > $3.00       -> Green (healthy)
+// $1.00 - $3.00 -> Yellow (warning / time to refill)
+// < $1.00       -> Red (critical)
+function balanceColor(remainingUsd: number): string {
+	if (remainingUsd <= 1.0) return ANSI_RED;
+	if (remainingUsd <= 3.0) return ANSI_YELLOW;
+	return ANSI_GREEN;
+}
+
 // Single compact, color-coded status segment: translate state, thinking, model,
 // and per-session translation cost (amber). Structured in 3 semantic clusters
 // (Target & Mode │ Model & Thinking │ Cost & Balance) in ONE key.
@@ -145,24 +155,25 @@ function translateStatusText(): string {
 		);
 	}
 
-	// Group 3: Session translation cost & OpenRouter balance (with CZK conversion)
+	// Group 3: Session translation cost & OpenRouter balance (with dynamic threshold colors)
 	const rate = cachedUsdToCzkRate();
 	const costUsd = state.sessionCostUsd;
-	let costStr = `💰 $${fmtSmallAmount(costUsd)}`;
+	let costStr = `💰 ${paint(ANSI_AMBER, `$${fmtSmallAmount(costUsd)}`)}`;
 	if (typeof rate === "number" && rate > 0) {
 		const costCzk = costUsd * rate;
-		costStr += ` / ${fmtSmallAmount(costCzk)} Kč`;
+		costStr += `${paint(ANSI_DIM, " / ")}${paint(ANSI_AMBER, `${fmtSmallAmount(costCzk)} Kč`)}`;
 	}
-	const costGroup = [amber(costStr)];
+	const costGroup = [costStr];
 
 	const bal = cachedBalance();
 	if (bal) {
-		let balStr = `💳 OR $${bal.remaining.toFixed(2)}`;
+		const bColor = balanceColor(bal.remaining);
+		let balStr = `💳 ${paint(ANSI_DIM, "OR ")}${paint(bColor, `$${bal.remaining.toFixed(2)}`)}`;
 		if (typeof rate === "number" && rate > 0) {
 			const balCzk = bal.remaining * rate;
-			balStr += ` / ${fmtSmallAmount(balCzk)} Kč`;
+			balStr += `${paint(ANSI_DIM, " / ")}${paint(bColor, `${fmtSmallAmount(balCzk)} Kč`)}`;
 		}
-		costGroup.push(amber(balStr));
+		costGroup.push(balStr);
 	}
 
 	return [

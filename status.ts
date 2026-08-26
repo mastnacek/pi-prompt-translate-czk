@@ -112,36 +112,50 @@ function shortModelLabel(setting: TranslateModelSetting): string {
 }
 
 // Single compact, color-coded status segment: translate state, thinking, model,
-// and per-session translation cost (amber). All merged into ONE key so the
-// footer never overflows and hides the translate info behind "+N more".
+// and per-session translation cost (amber). Structured in 3 semantic clusters
+// (Target & Mode │ Model & Thinking │ Cost & Balance) in ONE key.
 function translateStatusText(): string {
 	const config = state.config;
 	if (!config.enabled) return paint(ANSI_RED, "\u21c4 off");
+
 	const effectiveModel = getEffectiveTranslateModel();
-	const sep = paint(ANSI_DIM, " \u00b7 ");
-	const parts = [paint(ANSI_GREEN, `\u21c4 ${config.targetLanguage}`)];
+	const groupSep = paint(ANSI_DIM, " \u2502 ");
+	const itemSep = paint(ANSI_DIM, " \u00b7 ");
+
+	// Group 1: Target language & boost mode
+	const targetGroup = [paint(ANSI_GREEN, `\u21c4 ${config.targetLanguage}`)];
 	if (config.boost !== "off") {
-		parts.push(paint(ANSI_YELLOW, `\u26a1 ${config.boost}`));
+		targetGroup.push(paint(ANSI_YELLOW, `\u26a1 ${config.boost}`));
 	}
+
+	// Group 2: Model, reasoning & temporary expiry
+	const modelGroup = [
+		paint(ANSI_LAVENDER, shortModelLabel(effectiveModel.setting)),
+	];
 	if (config.translateReasoning) {
-		parts.push(paint(ANSI_CYAN, `think ${TRANSLATE_REASONING_LEVEL}`));
+		modelGroup.push(paint(ANSI_CYAN, `🧠 ${TRANSLATE_REASONING_LEVEL}`));
 	}
-	parts.push(paint(ANSI_LAVENDER, shortModelLabel(effectiveModel.setting)));
 	if (effectiveModel.temporaryUntil) {
-		parts.push(
+		modelGroup.push(
 			paint(
 				ANSI_DIM,
-				`til ${effectiveModel.temporaryUntil.toISOString().slice(5, 10)}`,
+				`⏳ ${effectiveModel.temporaryUntil.toISOString().slice(5, 10)}`,
 			),
 		);
 	}
-	// Session translation cost always shown (even $0) so the amount never disappears.
-	parts.push(amber(`$${fmtSmallAmount(state.sessionCostUsd)}`));
+
+	// Group 3: Session translation cost & OpenRouter balance
+	const costGroup = [amber(`💰 $${fmtSmallAmount(state.sessionCostUsd)}`)];
 	const bal = cachedBalance();
 	if (bal) {
-		parts.push(amber(`OR$${bal.remaining.toFixed(2)}`));
+		costGroup.push(amber(`💳 OR $${bal.remaining.toFixed(2)}`));
 	}
-	return parts.join(sep);
+
+	return [
+		targetGroup.join(itemSep),
+		modelGroup.join(itemSep),
+		costGroup.join(itemSep),
+	].join(groupSep);
 }
 
 export function updateTranslateStatus(ctx: ExtensionContext) {

@@ -134,11 +134,16 @@ async function translateGoalCommandText(
 			"prompt",
 		);
 		const rebuilt = goalCommand.rebuild(translated.text);
-		if (ctx.hasUI)
-			ctx.ui.notify(
-				`prompt-translate: /goal objective → EN ${formatCost(translated.costUsd, translated.costCzk)}`,
-				"info",
-			);
+		try {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`prompt-translate: /goal objective → EN ${formatCost(translated.costUsd, translated.costCzk)}`,
+					"info",
+				);
+			}
+		} catch {
+			/* ignore notification failure if ctx is stale */
+		}
 		state.pending = {
 			targetLanguage: config.targetLanguage,
 			translateResponses: config.translateResponses,
@@ -157,11 +162,16 @@ async function translateGoalCommandText(
 		});
 		return rebuilt;
 	} catch (error) {
-		if (ctx.hasUI)
-			ctx.ui.notify(
-				`prompt translation failed; continuing with original /goal objective: ${error instanceof Error ? error.message : String(error)}`,
-				"error",
-			);
+		try {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`prompt translation failed; continuing with original /goal objective: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
+		} catch {
+			/* ignore notification failure if ctx is stale */
+		}
 		return text;
 	}
 }
@@ -184,7 +194,12 @@ export function installPromptInterceptor() {
 		text: string,
 		options?: PromptOptions,
 	) {
-		const rewritten = await translateGoalCommandText(text, options);
+		let rewritten = text;
+		try {
+			rewritten = await translateGoalCommandText(text, options);
+		} catch {
+			rewritten = text;
+		}
 		return originalPrompt.call(this, rewritten, options);
 	};
 	proto[PROMPT_INTERCEPTOR_MARKER] = true;

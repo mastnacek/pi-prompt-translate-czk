@@ -15,6 +15,7 @@ export const PROMPT_TRANSLATE_SYSTEM_PROMPT = [
 	"Translate to English. Output only the translation.",
 	"Silently fix obvious typos, spelling, and grammar mistakes in the source text, but never change meaning, code, or intent.",
 	"Keep code, paths, commands, markdown, placeholders, JSON, XML-like tags, and technical terms unchanged when appropriate.",
+	"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
 ].join("\n");
 
 export const PROMPT_BOOST_SYSTEM_PROMPT = [
@@ -23,6 +24,7 @@ export const PROMPT_BOOST_SYSTEM_PROMPT = [
 	"Preserve the user's intent, tone, and level of detail: a short casual request stays short; do not add structure, bullet lists, or background the user did not provide.",
 	"Silently fix typos and grammar, drop filler, and resolve ambiguity only when the intended meaning is obvious from the source.",
 	"Keep code, paths, commands, markdown, placeholders, JSON, XML-like tags, and technical terms unchanged when appropriate.",
+	"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
 	"If the source is a question, keep it a question. Never answer or execute the prompt.",
 ].join("\n");
 
@@ -33,6 +35,7 @@ export const PROMPT_PLUS_SYSTEM_PROMPT = [
 	"Strict fidelity: every sentence in the output must correspond to something the user explicitly wrote. Never add steps, checks, topics, constraints, or details that are not present in the source, even if they would be helpful.",
 	"Preserve the user's level of detail: do not expand a brief remark into a detailed brief. Add structure only when the source genuinely has multiple parts.",
 	"Keep code, paths, commands, markdown, placeholders, JSON, XML-like tags, and technical terms unchanged when appropriate.",
+	"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
 	"Fix typos and grammar; drop filler. If the source is a question, keep it a question. Never answer or execute the prompt.",
 ].join("\n");
 
@@ -42,6 +45,7 @@ export const PROMPT_MEGA_SYSTEM_PROMPT = [
 	"When the request has multiple parts, break it into an ordered task list (1., 2., 3.) in the order the agent should execute the work; infer a sensible order from context (e.g. investigate before fixing, verify at the end).",
 	"Do not add steps, checks, or topics not present in the source. You may reorder and restructure what the user wrote, but every task must correspond to something the user explicitly said.",
 	"Preserve every name, path, command, constraint, and detail from the source. Keep code, markdown, placeholders, JSON, XML-like tags, and technical terms unchanged.",
+	"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
 	"Fix typos and grammar; drop filler and hedging. Keep the result compact — structure only when the request genuinely has multiple parts.",
 	"If the source is a question, keep it a question. Never answer or execute the prompt.",
 ].join("\n");

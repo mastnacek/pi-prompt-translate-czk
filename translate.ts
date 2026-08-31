@@ -82,6 +82,42 @@ function shouldProtectTagName(tagName: string): boolean {
 	return normalized.includes("action") || normalized === "pi-autoprompt-next";
 }
 
+export function protectPromptSegments(text: string): ProtectedText {
+	const segments: ProtectedSegment[] = [];
+	let protectedText = text;
+	const addSegment = (value: string) => {
+		const placeholder = `__PI_PROMPT_TRANSLATE_PROTECTED_${segments.length}__`;
+		segments.push({ placeholder, value });
+		return placeholder;
+	};
+
+	// 1. Protect pi-read-all headers if present
+	protectedText = protectedText.replace(
+		/\[pi-read-all\]:[^\n]*\n*/g,
+		(match) => addSegment(match),
+	);
+
+	// 2. Protect any <file ...>...</file>, <context>...</context>, <document>...</document>, <code ...>...</code>
+	protectedText = protectedText.replace(
+		/<(file|context|document|code|snippet)\b[^>]*>[\s\S]*?<\/\1>/gi,
+		(match) => addSegment(match),
+	);
+
+	// 3. Protect multi-line markdown code blocks
+	protectedText = protectedText.replace(
+		/```[\s\S]*?```/g,
+		(match) => addSegment(match),
+	);
+
+	// 4. Protect @! trigger paths (pi-read-all)
+	protectedText = protectedText.replace(
+		/@!"[^"\n]+"|@![^\s"(){}[\];,]+/g,
+		(match) => addSegment(match),
+	);
+
+	return { text: protectedText, segments };
+}
+
 export function protectFinalAnswerSegments(text: string): ProtectedText {
 	const segments: ProtectedSegment[] = [];
 	let protectedText = text;
@@ -255,7 +291,9 @@ export async function translate(
 	const protectedInput =
 		purpose === "answer"
 			? protectFinalAnswerSegments(text)
-			: { text, segments: [] };
+			: purpose === "prompt"
+				? protectPromptSegments(text)
+				: { text, segments: [] };
 	const systemPrompt =
 		purpose === "prompt"
 			? config.boost === "mega"

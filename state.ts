@@ -20,6 +20,8 @@ export const state = {
 		| undefined,
 	/** Translation USD cost accumulated in this session (recomputed on session_start). */
 	sessionCostUsd: 0,
+	/** Confirmed words/symbols synchronized from pi-at-words. */
+	atWords: [] as string[],
 };
 
 export function resetPending(): void {

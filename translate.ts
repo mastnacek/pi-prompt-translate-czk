@@ -82,7 +82,10 @@ function shouldProtectTagName(tagName: string): boolean {
 	return normalized.includes("action") || normalized === "pi-autoprompt-next";
 }
 
-export function protectPromptSegments(text: string): ProtectedText {
+export function protectPromptSegments(
+	text: string,
+	knownWords: string[] = state.atWords,
+): ProtectedText {
 	const segments: ProtectedSegment[] = [];
 	let protectedText = text;
 	const addSegment = (value: string) => {
@@ -103,9 +106,13 @@ export function protectPromptSegments(text: string): ProtectedText {
 		(match) => addSegment(match),
 	);
 
-	// 3. Protect multi-line markdown code blocks
+	// 3. Protect multi-line markdown code blocks and inline code
 	protectedText = protectedText.replace(
 		/```[\s\S]*?```/g,
+		(match) => addSegment(match),
+	);
+	protectedText = protectedText.replace(
+		/`[^`\n]+`/g,
 		(match) => addSegment(match),
 	);
 
@@ -114,6 +121,36 @@ export function protectPromptSegments(text: string): ProtectedText {
 		/@!"[^"\n]+"|@![^\s"(){}[\];,]+/g,
 		(match) => addSegment(match),
 	);
+
+	// 5. Protect standard @ file mentions (@src/file.ts, @"quoted file.ts")
+	protectedText = protectedText.replace(
+		/@"[^"\n]+"|@[\w][\w./-]*/g,
+		(match) => addSegment(match),
+	);
+
+	// 6. Protect ? symbol queries (?myFunc, ?varName from pi-at-words)
+	protectedText = protectedText.replace(
+		/(?<=[ \t([{]|^)\?[A-Za-z0-9_]{2,}/g,
+		(match) => addSegment(match),
+	);
+
+	// 7. Protect confirmed ?words / symbols from @-mentioned files
+	if (knownWords && knownWords.length > 0) {
+		const alts = [...knownWords]
+			.filter(
+				(w): w is string =>
+					typeof w === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(w),
+			)
+			.sort((a, b) => b.length - a.length)
+			.join("|");
+		if (alts) {
+			const re = new RegExp(
+				`(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`,
+				"g",
+			);
+			protectedText = protectedText.replace(re, (match) => addSegment(match));
+		}
+	}
 
 	return { text: protectedText, segments };
 }
@@ -176,38 +213,236 @@ const CZECH_SLOVAK_DIACRITICS_RE =
 	/[áčďéěíňóřšťúůýžľĺŕôäöüßąćęłńśźżàâçèéêëîïôùûüÿñáéíóúÁČĎÉĚÍŇÓŘŠŤÚŮÝŽĽĹŔÔÄÖÜẞĄĆĘŁŃŚŹŻÀÂÇÈÉÊËÎÏÔÙÛÜŸÑÁÉÍÓÚ]/;
 
 const CZECH_ASCII_WORDS = new Set([
-	"ahoj", "cau", "prosim", "dekuji", "diky", "jak", "proc", "kde", "kdy", "kdo", "co",
-	"chci", "potrebuji", "udelat", "udelej", "oprav", "opravit", "vytvor", "vytvorit",
-	"napis", "napiste", "najdi", "hledej", "zkus", "zkuste", "muzes", "muzete", "pro",
-	"nebo", "takze", "protoze", "kter", "ktera", "ktere", "ktery", "ktereho", "kterou",
-	"tento", "tato", "toto", "tyto", "sem", "tam", "jeste", "uz", "vse", "vsechno",
-	"soubor", "soubory", "funkce", "trida", "kod", "chyba", "chybu", "funguje", "nefunguje",
-	"prikaz", "spust", "smaz", "pridej", "uprav", "zmen", "zobraz", "ukaz", "vypis", "podle",
-	"zadost", "ukol", "vyres", "zkontroluj", "nainstaluj", "preloz", "preklad"
+	"ahoj",
+	"cau",
+	"prosim",
+	"dekuji",
+	"diky",
+	"jak",
+	"proc",
+	"kde",
+	"kdy",
+	"kdo",
+	"co",
+	"chci",
+	"potrebuji",
+	"udelat",
+	"udelej",
+	"oprav",
+	"opravit",
+	"vytvor",
+	"vytvorit",
+	"napis",
+	"napiste",
+	"najdi",
+	"hledej",
+	"zkus",
+	"zkuste",
+	"muzes",
+	"muzete",
+	"pro",
+	"nebo",
+	"takze",
+	"protoze",
+	"kter",
+	"ktera",
+	"ktere",
+	"ktery",
+	"ktereho",
+	"kterou",
+	"tento",
+	"tato",
+	"toto",
+	"tyto",
+	"sem",
+	"tam",
+	"jeste",
+	"uz",
+	"vse",
+	"vsechno",
+	"soubor",
+	"soubory",
+	"funkce",
+	"trida",
+	"kod",
+	"chyba",
+	"chybu",
+	"funguje",
+	"nefunguje",
+	"prikaz",
+	"spust",
+	"smaz",
+	"pridej",
+	"uprav",
+	"zmen",
+	"zobraz",
+	"ukaz",
+	"vypis",
+	"podle",
+	"zadost",
+	"ukol",
+	"vyres",
+	"zkontroluj",
+	"nainstaluj",
+	"preloz",
+	"preklad",
 ]);
 
 const ENGLISH_COMMON_WORDS = new Set([
-	"the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "it", "for", "not",
-	"on", "with", "he", "as", "you", "do", "at", "this", "but", "his", "by", "from",
-	"they", "we", "say", "her", "she", "or", "an", "will", "my", "one", "all", "would",
-	"there", "their", "what", "so", "up", "out", "if", "about", "who", "get", "which",
-	"go", "me", "when", "make", "can", "like", "time", "no", "just", "him", "know",
-	"take", "people", "into", "year", "your", "good", "some", "could", "them", "see",
-	"other", "than", "then", "now", "look", "only", "come", "its", "over", "think",
-	"also", "back", "after", "use", "two", "how", "our", "work", "first", "well",
-	"way", "even", "new", "want", "because", "any", "these", "give", "day", "most",
-	"us", "is", "are", "was", "were", "been", "has", "had", "does", "did", "please",
-	"fix", "create", "write", "implement", "update", "refactor", "test", "build", "run",
-	"check", "remove", "add", "delete", "show", "find", "search", "replace", "modify",
-	"file", "files", "function", "class", "code", "bug", "error", "issue", "prompt", "review"
+	"the",
+	"be",
+	"to",
+	"of",
+	"and",
+	"a",
+	"in",
+	"that",
+	"have",
+	"i",
+	"it",
+	"for",
+	"not",
+	"on",
+	"with",
+	"he",
+	"as",
+	"you",
+	"do",
+	"at",
+	"this",
+	"but",
+	"his",
+	"by",
+	"from",
+	"they",
+	"we",
+	"say",
+	"her",
+	"she",
+	"or",
+	"an",
+	"will",
+	"my",
+	"one",
+	"all",
+	"would",
+	"there",
+	"their",
+	"what",
+	"so",
+	"up",
+	"out",
+	"if",
+	"about",
+	"who",
+	"get",
+	"which",
+	"go",
+	"me",
+	"when",
+	"make",
+	"can",
+	"like",
+	"time",
+	"no",
+	"just",
+	"him",
+	"know",
+	"take",
+	"people",
+	"into",
+	"year",
+	"your",
+	"good",
+	"some",
+	"could",
+	"them",
+	"see",
+	"other",
+	"than",
+	"then",
+	"now",
+	"look",
+	"only",
+	"come",
+	"its",
+	"over",
+	"think",
+	"also",
+	"back",
+	"after",
+	"use",
+	"two",
+	"how",
+	"our",
+	"work",
+	"first",
+	"well",
+	"way",
+	"even",
+	"new",
+	"want",
+	"because",
+	"any",
+	"these",
+	"give",
+	"day",
+	"most",
+	"us",
+	"is",
+	"are",
+	"was",
+	"were",
+	"been",
+	"has",
+	"had",
+	"does",
+	"did",
+	"please",
+	"fix",
+	"create",
+	"write",
+	"implement",
+	"update",
+	"refactor",
+	"test",
+	"build",
+	"run",
+	"check",
+	"remove",
+	"add",
+	"delete",
+	"show",
+	"find",
+	"search",
+	"replace",
+	"modify",
+	"file",
+	"files",
+	"function",
+	"class",
+	"code",
+	"bug",
+	"error",
+	"issue",
+	"prompt",
+	"review",
 ]);
 
-export function detectLanguageOrCode(text: string): { isEnglishOrCode: boolean; reason: string } {
+export function detectLanguageOrCode(text: string): {
+	isEnglishOrCode: boolean;
+	reason: string;
+} {
 	const trimmed = text.trim();
 	if (!trimmed) return { isEnglishOrCode: true, reason: "empty" };
 
 	// 1. Slash commands, shell/repl prefixes
-	if (trimmed.startsWith("/") || trimmed.startsWith("$ ") || trimmed.startsWith("> ") || trimmed.startsWith("#!")) {
+	if (
+		trimmed.startsWith("/") ||
+		trimmed.startsWith("$ ") ||
+		trimmed.startsWith("> ") ||
+		trimmed.startsWith("#!")
+	) {
 		return { isEnglishOrCode: true, reason: "command_or_script" };
 	}
 
@@ -215,7 +450,10 @@ export function detectLanguageOrCode(text: string): { isEnglishOrCode: boolean; 
 	if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
 		return { isEnglishOrCode: true, reason: "code_block" };
 	}
-	if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+	if (
+		(trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+		(trimmed.startsWith("[") && trimmed.endsWith("]"))
+	) {
 		try {
 			JSON.parse(trimmed);
 			return { isEnglishOrCode: true, reason: "json" };
@@ -223,7 +461,10 @@ export function detectLanguageOrCode(text: string): { isEnglishOrCode: boolean; 
 			/* not valid json */
 		}
 	}
-	if (trimmed.startsWith("diff --git") || (trimmed.includes("--- a/") && trimmed.includes("+++ b/"))) {
+	if (
+		trimmed.startsWith("diff --git") ||
+		(trimmed.includes("--- a/") && trimmed.includes("+++ b/"))
+	) {
 		return { isEnglishOrCode: true, reason: "git_diff" };
 	}
 
@@ -233,7 +474,10 @@ export function detectLanguageOrCode(text: string): { isEnglishOrCode: boolean; 
 	}
 
 	// 4. Tokenize words
-	const words = trimmed.toLowerCase().split(/[^a-zA-Z]+/).filter((w) => w.length > 1);
+	const words = trimmed
+		.toLowerCase()
+		.split(/[^a-zA-Z]+/)
+		.filter((w) => w.length > 1);
 	if (words.length === 0) {
 		return { isEnglishOrCode: true, reason: "symbols_only" };
 	}

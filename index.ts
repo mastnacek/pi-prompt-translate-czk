@@ -195,11 +195,12 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on("at-words:words-updated", (data: unknown) => {
 		const words = (data as { words?: unknown } | undefined)?.words;
 		if (!Array.isArray(words)) return;
-		const alts = words
-			.filter(
-				(w): w is string =>
-					typeof w === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(w),
-			)
+		const filteredWords = words.filter(
+			(w): w is string =>
+				typeof w === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(w),
+		);
+		state.atWords = filteredWords;
+		const alts = filteredWords
 			.sort((a, b) => b.length - a.length)
 			.join("|");
 		if (!alts) {

@@ -2,8 +2,17 @@
 
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Api, Model, ThinkingBudgets, ThinkingLevel } from "@earendil-works/pi-ai";
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	Api,
+	Model,
+	ThinkingBudgets,
+	ThinkingLevel,
+} from "@earendil-works/pi-ai";
+import {
+	getAgentDir,
+	type ExtensionAPI,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { state } from "./state";
 import {
 	CONFIG_ENTRY_TYPE,
@@ -130,7 +139,9 @@ export function normalizeLanguage(input: string): string {
 	return aliases[value] ?? input.trim();
 }
 
-export function normalizeConfig(value: Partial<TranslateConfig>): TranslateConfig {
+export function normalizeConfig(
+	value: Partial<TranslateConfig>,
+): TranslateConfig {
 	return {
 		...DEFAULT_CONFIG,
 		...value,
@@ -165,7 +176,11 @@ export function loadGlobalConfig(): Partial<TranslateConfig> {
 
 export function saveGlobalConfig() {
 	try {
-		writeFileSync(GLOBAL_CONFIG_FILE, JSON.stringify(state.config, null, 2), "utf8");
+		writeFileSync(
+			GLOBAL_CONFIG_FILE,
+			JSON.stringify(state.config, null, 2),
+			"utf8",
+		);
 	} catch {
 		/* best-effort: global persistence must never break the session */
 	}
@@ -201,7 +216,9 @@ export function persistConfig(pi: ExtensionAPI) {
 	pi.appendEntry(CONFIG_ENTRY_TYPE, state.config);
 }
 
-export function parseModelSetting(raw: string): TranslateModelSetting | undefined {
+export function parseModelSetting(
+	raw: string,
+): TranslateModelSetting | undefined {
 	const value = raw.trim();
 	if (value === "current" || value === "default") return value;
 	if (/^[^\s/]+\/.+$/.test(value)) return value as `${string}/${string}`;
@@ -305,4 +322,101 @@ export async function getModelAndAuth(
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!auth.ok) throw new Error(auth.error);
 	return { model, apiKey: auth.apiKey, headers: auth.headers, env: auth.env };
+}
+
+/**
+ * Dynamic model discovery following native Pi ModelRegistry, store, and settings.
+ */
+export function getAvailableModels(ctx?: ExtensionContext): string[] {
+	const models = new Set<string>(["current", "default"]);
+
+	// 1. Inspect runtime ModelRegistry
+	try {
+		const registry = (
+			ctx as {
+				modelRegistry?: {
+					getModels?: () => Array<{ provider?: string; id?: string }>;
+				};
+			}
+		)?.modelRegistry;
+		if (registry?.getModels) {
+			for (const m of registry.getModels()) {
+				if (m.provider && m.id) {
+					models.add(`${m.provider}/${m.id}`);
+				}
+			}
+		}
+	} catch {
+		// Non-fatal
+	}
+
+	// 2. Read models from ~/.pi/agent/models.json (custom providers)
+	try {
+		const customModelsPath = join(getAgentDir(), "models.json");
+		if (existsSync(customModelsPath)) {
+			const data = JSON.parse(readFileSync(customModelsPath, "utf8")) as {
+				providers?: Record<string, { models?: Array<{ id?: string }> }>;
+			};
+			if (data.providers) {
+				for (const [provider, info] of Object.entries(data.providers)) {
+					if (Array.isArray(info?.models)) {
+						for (const m of info.models) {
+							if (m?.id) models.add(`${provider}/${m.id}`);
+						}
+					}
+				}
+			}
+		}
+	} catch {
+		// Non-fatal
+	}
+
+	// 3. Read models from ~/.pi/agent/models-store.json (cached remote catalogs)
+	try {
+		const storePath = join(getAgentDir(), "models-store.json");
+		if (existsSync(storePath)) {
+			const data = JSON.parse(readFileSync(storePath, "utf8")) as Record<
+				string,
+				{ models?: Array<string | { id?: string }> }
+			>;
+			for (const [provider, info] of Object.entries(data)) {
+				if (Array.isArray(info?.models)) {
+					for (const m of info.models) {
+						const id = typeof m === "string" ? m : m?.id;
+						if (id) models.add(`${provider}/${id}`);
+					}
+				}
+			}
+		}
+	} catch {
+		// Non-fatal
+	}
+
+	// 4. Read models from ~/.pi/agent/settings.json
+	try {
+		const settingsPath = join(getAgentDir(), "settings.json");
+		if (existsSync(settingsPath)) {
+			const data = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<
+				string,
+				unknown
+			>;
+			const provs = data.providers as
+				| Record<string, { models?: Array<string | { id?: string }> }>
+				| undefined;
+			if (provs && typeof provs === "object") {
+				for (const [provider, info] of Object.entries(provs)) {
+					if (Array.isArray(info?.models)) {
+						for (const m of info.models) {
+							const id = typeof m === "string" ? m : m?.id;
+							if (id) models.add(`${provider}/${id}`);
+						}
+					}
+				}
+			}
+		}
+	} catch {
+		// Non-fatal
+	}
+
+	return Array.from(models);
 }

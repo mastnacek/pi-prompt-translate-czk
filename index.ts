@@ -11,7 +11,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
+import { Box, Text, type AutocompleteItem } from "@earendil-works/pi-tui";
 import {
 	clearBalanceCache,
 	getOpenRouterBalance,
@@ -21,6 +21,7 @@ import {
 	GLOBAL_CONFIG_FILE,
 	clearGlobalConfig,
 	extractLatestConfig,
+	getAvailableModels,
 	getEffectiveTranslateModel,
 	loadGlobalConfig,
 	normalizeConfig,
@@ -236,13 +237,13 @@ export default function (pi: ExtensionAPI) {
 					: "";
 			const usage = entry.data?.usage;
 			const tokStr =
-				usage?.totalTokens !== undefined
-					? ` · ${usage.totalTokens} tok (in: ${usage.input}, out: ${usage.output})`
-					: "";
+				usage?.totalTokens === undefined
+					? ""
+					: ` · ${usage.totalTokens} tok (in: ${usage.input}, out: ${usage.output})`;
 			const costStr =
-				entry.data?.costUsd !== undefined
-					? ` · ${formatCost(entry.data.costUsd, entry.data.costCzk)}`
-					: "";
+				entry.data?.costUsd === undefined
+					? ""
+					: ` · ${formatCost(entry.data.costUsd, entry.data.costCzk)}`;
 
 			const header =
 				theme.fg("accent", `🔄 Prompt Translation Diff${boostBadge}`) +
@@ -403,18 +404,17 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				if (cmd === "model") {
-					const items = [
-						{
-							value: "model current",
-							label: "model current",
-							description: "použít aktuální model konverzace",
-						},
-						{
-							value: "model default",
-							label: "model default",
-							description: "použít výchozí překladový model",
-						},
-					];
+					const available = getAvailableModels(state.sessionCtx);
+					const items: AutocompleteItem[] = available.map((m) => ({
+						value: `model ${m}`,
+						label: `model ${m}`,
+						description:
+							m === "current"
+								? "použít aktuální model konverzace"
+								: m === "default"
+									? "použít výchozí překladový model"
+									: `použít model ${m}`,
+					}));
 					const filtered = items.filter((i) =>
 						i.value.toLowerCase().startsWith(normalizedPrefix),
 					);

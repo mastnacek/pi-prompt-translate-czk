@@ -95,9 +95,8 @@ export function protectPromptSegments(
 	};
 
 	// 1. Protect pi-read-all headers if present
-	protectedText = protectedText.replace(
-		/\[pi-read-all\]:[^\n]*\n*/g,
-		(match) => addSegment(match),
+	protectedText = protectedText.replace(/\[pi-read-all\]:[^\n]*\n*/g, (match) =>
+		addSegment(match),
 	);
 
 	// 2. Protect any <file ...>...</file>, <context>...</context>, <document>...</document>, <code ...>...</code>
@@ -107,13 +106,11 @@ export function protectPromptSegments(
 	);
 
 	// 3. Protect multi-line markdown code blocks and inline code
-	protectedText = protectedText.replace(
-		/```[\s\S]*?```/g,
-		(match) => addSegment(match),
+	protectedText = protectedText.replace(/```[\s\S]*?```/g, (match) =>
+		addSegment(match),
 	);
-	protectedText = protectedText.replace(
-		/`[^`\n]+`/g,
-		(match) => addSegment(match),
+	protectedText = protectedText.replace(/`[^`\n]+`/g, (match) =>
+		addSegment(match),
 	);
 
 	// 4. Protect @! trigger paths (pi-read-all)
@@ -123,9 +120,8 @@ export function protectPromptSegments(
 	);
 
 	// 5. Protect standard @ file mentions (@src/file.ts, @"quoted file.ts")
-	protectedText = protectedText.replace(
-		/@"[^"\n]+"|@[\w][\w./-]*/g,
-		(match) => addSegment(match),
+	protectedText = protectedText.replace(/@"[^"\n]+"|@[\w][\w./-]*/g, (match) =>
+		addSegment(match),
 	);
 
 	// 6. Protect ? symbol queries (?myFunc, ?varName from pi-at-words)
@@ -144,10 +140,7 @@ export function protectPromptSegments(
 			.sort((a, b) => b.length - a.length)
 			.join("|");
 		if (alts) {
-			const re = new RegExp(
-				`(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`,
-				"g",
-			);
+			const re = new RegExp(`(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`, "g");
 			protectedText = protectedText.replace(re, (match) => addSegment(match));
 		}
 	}

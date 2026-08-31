@@ -200,9 +200,7 @@ export default function (pi: ExtensionAPI) {
 				typeof w === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(w),
 		);
 		state.atWords = filteredWords;
-		const alts = filteredWords
-			.sort((a, b) => b.length - a.length)
-			.join("|");
+		const alts = filteredWords.sort((a, b) => b.length - a.length).join("|");
 		if (!alts) {
 			atWordsRe = null;
 			return;
@@ -225,56 +223,51 @@ export default function (pi: ExtensionAPI) {
 		usage?: TranslationUsage;
 		costUsd?: number;
 		costCzk?: number;
-	}>(
-		STATE_ENTRY_TYPE,
-		(entry, _options, theme) => {
-			const source = entry.data?.source;
-			if (typeof source !== "string" || !source.trim()) return undefined;
+	}>(STATE_ENTRY_TYPE, (entry, _options, theme) => {
+		const source = entry.data?.source;
+		if (typeof source !== "string" || !source.trim()) return undefined;
 
-			// If diff mode is on, render the full diff summary + token usage box
-			if (state.config.diff) {
-				const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
-				const boostBadge =
-					entry.data?.boost && entry.data.boost !== "off"
-						? ` [boost: ${entry.data.boost}]`
-						: "";
-				const usage = entry.data?.usage;
-				const tokStr =
-					usage?.totalTokens !== undefined
-						? ` · ${usage.totalTokens} tok (in: ${usage.input}, out: ${usage.output})`
-						: "";
-				const costStr =
-					entry.data?.costUsd !== undefined
-						? ` · ${formatCost(entry.data.costUsd, entry.data.costCzk)}`
-						: "";
-
-				const header =
-					theme.fg("accent", `🔄 Prompt Translation Diff${boostBadge}`) +
-					theme.fg("dim", `${tokStr}${costStr}`);
-
-				const originalSection = `${theme.fg("customMessageLabel", "Original (CZ):")}\n${theme.fg("customMessageText", styleAtWords(source))}`;
-				const englishSection =
-					entry.data?.english && entry.data.english.trim() !== source.trim()
-						? `\n\n${theme.fg("customMessageLabel", "Enhanced (EN):")}\n${theme.fg("customMessageText", entry.data.english)}`
-						: "";
-
-				box.addChild(
-					new Text(`${header}\n\n${originalSection}${englishSection}`),
-				);
-				return box;
-			}
-
-			// If diff mode is off, but showOriginal is on:
-			if (!state.config.showOriginal) return undefined;
+		// If diff mode is on, render the full diff summary + token usage box
+		if (state.config.diff) {
 			const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
-			box.addChild(
-				new Text(
-					`${theme.fg("customMessageLabel", "original:")}\n${theme.fg("customMessageText", styleAtWords(source))}`,
-				),
-			);
+			const boostBadge =
+				entry.data?.boost && entry.data.boost !== "off"
+					? ` [boost: ${entry.data.boost}]`
+					: "";
+			const usage = entry.data?.usage;
+			const tokStr =
+				usage?.totalTokens !== undefined
+					? ` · ${usage.totalTokens} tok (in: ${usage.input}, out: ${usage.output})`
+					: "";
+			const costStr =
+				entry.data?.costUsd !== undefined
+					? ` · ${formatCost(entry.data.costUsd, entry.data.costCzk)}`
+					: "";
+
+			const header =
+				theme.fg("accent", `🔄 Prompt Translation Diff${boostBadge}`) +
+				theme.fg("dim", `${tokStr}${costStr}`);
+
+			const originalSection = `${theme.fg("customMessageLabel", "Original (CZ):")}\n${theme.fg("customMessageText", styleAtWords(source))}`;
+			const englishSection =
+				entry.data?.english && entry.data.english.trim() !== source.trim()
+					? `\n\n${theme.fg("customMessageLabel", "Enhanced (EN):")}\n${theme.fg("customMessageText", entry.data.english)}`
+					: "";
+
+			box.addChild(new Text(`${header}\n\n${originalSection}${englishSection}`));
 			return box;
-		},
-	);
+		}
+
+		// If diff mode is off, but showOriginal is on:
+		if (!state.config.showOriginal) return undefined;
+		const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
+		box.addChild(
+			new Text(
+				`${theme.fg("customMessageLabel", "original:")}\n${theme.fg("customMessageText", styleAtWords(source))}`,
+			),
+		);
+		return box;
+	});
 	pi.on("session_start", (_event, ctx) => {
 		state.sessionCtx = ctx;
 		state.config = extractLatestConfig(ctx);
@@ -302,7 +295,8 @@ export default function (pi: ExtensionAPI) {
 		boost: "úroveň vylepšení promptu (off | on | plus | mega)",
 		original: "zobrazení původního promptu nad překladem (on/off)",
 		diff: "zobrazení porovnání původního a vylepšeného promptu + tokeny (on/off)",
-		detect: "automatická detekce angličtiny a kódu pro přeskočení překladu (on/off)",
+		detect:
+			"automatická detekce angličtiny a kódu pro přeskočení překladu (on/off)",
 		balance: "zůstatek OpenRouter kreditu a kurz CZK (balance refresh)",
 		debug: "podrobné logování překladu do UI (on/off)",
 		global: "správa globální konfigurace (show | off)",
@@ -689,10 +683,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				config.diff = value === "on";
 				persist();
-				ctx.ui.notify(
-					`prompt-translate translation diff summary ${value}`,
-					"info",
-				);
+				ctx.ui.notify(`prompt-translate translation diff summary ${value}`, "info");
 				return;
 			}
 			if (subcommand === "detect" || subcommand === "autodetect") {
@@ -844,10 +835,7 @@ export default function (pi: ExtensionAPI) {
 		if (state.config.autodetect && state.config.boost === "off") {
 			const detection = detectLanguageOrCode(textToTranslate);
 			if (detection.isEnglishOrCode) {
-				debug(
-					ctx,
-					`skipped translation: prompt detected as ${detection.reason}`,
-				);
+				debug(ctx, `skipped translation: prompt detected as ${detection.reason}`);
 				state.pending = {
 					targetLanguage: state.config.targetLanguage,
 					translateResponses: state.config.translateResponses,

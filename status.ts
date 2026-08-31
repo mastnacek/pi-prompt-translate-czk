@@ -25,9 +25,6 @@ const STATE_STATUS_KEY = "prompt-translate-state";
 // Soft amber ANSI — distinct (money) but not harsh; dark-theme friendly.
 const ANSI_AMBER = "\x1b[38;2;218;165;32m";
 const ANSI_RESET = "\x1b[0m";
-function amber(text: string): string {
-	return `${ANSI_AMBER}${text}${ANSI_RESET}`;
-}
 
 // Dark-theme-friendly palette for the translate status segment.
 // Green = active target language, cyan = thinking, lavender = model,
@@ -155,23 +152,27 @@ function translateStatusText(): string {
 		);
 	}
 
-	// Group 3: Session translation cost & OpenRouter balance (with dynamic threshold colors)
+	// Group 3: Session translation cost & OpenRouter balance in CZK (with dynamic threshold colors)
 	const rate = cachedUsdToCzkRate();
 	const costUsd = state.sessionCostUsd;
-	let costStr = `💰 ${paint(ANSI_AMBER, `$${fmtSmallAmount(costUsd)}`)}`;
+	let costStr: string;
 	if (typeof rate === "number" && rate > 0) {
 		const costCzk = costUsd * rate;
-		costStr += `${paint(ANSI_DIM, " / ")}${paint(ANSI_AMBER, `${fmtSmallAmount(costCzk)} Kč`)}`;
+		costStr = `💰 ${paint(ANSI_AMBER, `${fmtSmallAmount(costCzk)} Kč`)}`;
+	} else {
+		costStr = `💰 ${paint(ANSI_AMBER, `$${fmtSmallAmount(costUsd)}`)}`;
 	}
 	const costGroup = [costStr];
 
 	const bal = cachedBalance();
 	if (bal) {
 		const bColor = balanceColor(bal.remaining);
-		let balStr = `💳 ${paint(ANSI_DIM, "OR ")}${paint(bColor, `$${bal.remaining.toFixed(2)}`)}`;
+		let balStr: string;
 		if (typeof rate === "number" && rate > 0) {
 			const balCzk = bal.remaining * rate;
-			balStr += `${paint(ANSI_DIM, " / ")}${paint(bColor, `${fmtSmallAmount(balCzk)} Kč`)}`;
+			balStr = `💳 ${paint(ANSI_DIM, "OR ")}${paint(bColor, `${fmtSmallAmount(balCzk)} Kč`)}`;
+		} else {
+			balStr = `💳 ${paint(ANSI_DIM, "OR ")}${paint(bColor, `$${bal.remaining.toFixed(2)}`)}`;
 		}
 		costGroup.push(balStr);
 	}
@@ -209,19 +210,19 @@ export function formatUsage(usage: TranslationUsage, rate?: number): string {
 	const cost = usage.cost?.total;
 	let costText = "";
 	if (typeof cost === "number") {
-		costText = `, cost=$${cost.toFixed(6)}`;
-		if (typeof rate === "number" && rate > 0)
-			costText += ` (≈ ${(cost * rate).toFixed(3)} Kč)`;
+		if (typeof rate === "number" && rate > 0) {
+			costText = `, cost=${fmtSmallAmount(cost * rate)} Kč`;
+		} else {
+			costText = `, cost=$${cost.toFixed(6)}`;
+		}
 	}
 	return `input=${usage.input}, output=${usage.output}, cacheRead=${usage.cacheRead}, cacheWrite=${usage.cacheWrite}, total=${usage.totalTokens}${costText}`;
 }
 
 export function formatCost(costUsd?: number, costCzk?: number): string {
-	if (typeof costUsd !== "number") return "(cost n/a)";
-	const usd = `$${fmtSmallAmount(costUsd)}`;
-	const czk =
-		typeof costCzk === "number" ? ` / ${fmtSmallAmount(costCzk)} Kč` : "";
-	return `(${usd}${czk})`;
+	if (typeof costCzk === "number") return `(${fmtSmallAmount(costCzk)} Kč)`;
+	if (typeof costUsd === "number") return `($${fmtSmallAmount(costUsd)})`;
+	return "(cost n/a)";
 }
 
 export async function statusText(ctx: ExtensionContext): Promise<string> {

@@ -2,8 +2,15 @@
 // writes the same live values (rebinding via exported `let` is not assignable
 // from importers; a single object sidesteps that).
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_CONFIG, type PendingTranslation, type TranslateConfig } from "./types";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+	DEFAULT_CONFIG,
+	type PendingTranslation,
+	type TranslateConfig,
+} from "./types";
 
 export const state = {
 	config: { ...DEFAULT_CONFIG } as TranslateConfig,

@@ -152,30 +152,30 @@ function translateStatusText(): string {
 		);
 	}
 
-	// Group 3: Session translation cost & OpenRouter balance in CZK (with dynamic threshold colors)
+	// Group 3: Session translation cost / OpenRouter balance in CZK (compact single credit card segment)
 	const rate = cachedUsdToCzkRate();
 	const costUsd = state.sessionCostUsd;
-	let costStr: string;
+	const bal = cachedBalance();
+
+	let moneyStr = "💳 ";
 	if (typeof rate === "number" && rate > 0) {
 		const costCzk = costUsd * rate;
-		costStr = `💰 ${paint(ANSI_AMBER, `${fmtSmallAmount(costCzk)} Kč`)}`;
-	} else {
-		costStr = `💰 ${paint(ANSI_AMBER, `$${fmtSmallAmount(costUsd)}`)}`;
-	}
-	const costGroup = [costStr];
-
-	const bal = cachedBalance();
-	if (bal) {
-		const bColor = balanceColor(bal.remaining);
-		let balStr: string;
-		if (typeof rate === "number" && rate > 0) {
+		moneyStr += paint(ANSI_AMBER, fmtSmallAmount(costCzk));
+		if (bal) {
+			const bColor = balanceColor(bal.remaining);
 			const balCzk = bal.remaining * rate;
-			balStr = `💳 ${paint(ANSI_DIM, "OR ")}${paint(bColor, `${fmtSmallAmount(balCzk)} Kč`)}`;
+			moneyStr += `${paint(ANSI_DIM, " / ")}${paint(bColor, `${fmtSmallAmount(balCzk)} Kč`)}`;
 		} else {
-			balStr = `💳 ${paint(ANSI_DIM, "OR ")}${paint(bColor, `$${bal.remaining.toFixed(2)}`)}`;
+			moneyStr += paint(ANSI_AMBER, " Kč");
 		}
-		costGroup.push(balStr);
+	} else {
+		moneyStr += paint(ANSI_AMBER, `$${fmtSmallAmount(costUsd)}`);
+		if (bal) {
+			const bColor = balanceColor(bal.remaining);
+			moneyStr += `${paint(ANSI_DIM, " / ")}${paint(bColor, `$${bal.remaining.toFixed(2)}`)}`;
+		}
 	}
+	const costGroup = [moneyStr];
 
 	return [
 		targetGroup.join(itemSep),

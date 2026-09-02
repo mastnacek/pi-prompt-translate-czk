@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	buildEffectiveHeaders,
 	cleanTranslationOutput,
 	createTranslationContext,
 	detectLanguageOrCode,
@@ -7,6 +8,8 @@ import {
 	protectPromptSegments,
 	restoreProtectedSegments,
 } from "./translate";
+import { formatTelemetryOverview } from "./status";
+import { state } from "./state";
 
 describe("protectPromptSegments & restoreProtectedSegments", () => {
 	it("protects pi-read-all headers and <file> blocks from translation", () => {
@@ -225,5 +228,50 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 		);
 		expect(res.isEnglishOrCode).toBe(true);
 		expect(res.reason).toBe("url_only");
+	});
+
+	it("builds effective headers for OpenRouter with sticky routing and attribution", () => {
+		const orHeaders = buildEffectiveHeaders("openrouter", "sess-12345", {
+			"custom-h": "val",
+			"null-h": null,
+		});
+		expect(orHeaders["HTTP-Referer"]).toBe(
+			"https://github.com/mastnacek/pi-prompt-translate-czk",
+		);
+		expect(orHeaders["X-Title"]).toBe("Pi Prompt Translate");
+		expect(orHeaders["x-session-id"]).toBe("sess-12345");
+		expect(orHeaders["custom-h"]).toBe("val");
+		expect(orHeaders).not.toHaveProperty("null-h");
+
+		const nonOrHeaders = buildEffectiveHeaders("google", "sess-12345", {
+			"custom-h": "val",
+		});
+		expect(nonOrHeaders).not.toHaveProperty("HTTP-Referer");
+		expect(nonOrHeaders).not.toHaveProperty("X-Title");
+		expect(nonOrHeaders).not.toHaveProperty("x-session-id");
+		expect(nonOrHeaders["custom-h"]).toBe("val");
+	});
+
+	it("formats telemetry overview with cache hits and savings metrics", async () => {
+		state.telemetry.totalRequests = 10;
+		state.telemetry.promptRequests = 7;
+		state.telemetry.answerRequests = 3;
+		state.telemetry.openRouterRequests = 10;
+		state.telemetry.cacheHitTurns = 8;
+		state.telemetry.cachedTokens = 2500;
+		state.telemetry.savedCostUsd = 0.0025;
+		state.sessionCostUsd = 0.001;
+
+		const mockCtx = {
+			signal: undefined,
+			hasUI: false,
+		} as never;
+
+		const overview = await formatTelemetryOverview(mockCtx);
+		expect(overview).toContain("pi-prompt-translate — Telemetry & Optimizations");
+		expect(overview).toContain("Cache Hit Rate:   80.0%");
+		expect(overview).toContain("Tokens from Cache: 2,500");
+		expect(overview).toContain("Sticky Routing:   Active (x-session-id pinned)");
+		expect(overview).toContain("Saved via Cache:");
 	});
 });

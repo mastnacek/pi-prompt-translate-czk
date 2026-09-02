@@ -12,6 +12,17 @@ import {
 	type TranslateConfig,
 } from "./types";
 
+export interface TelemetryStats {
+	totalRequests: number;
+	promptRequests: number;
+	answerRequests: number;
+	openRouterRequests: number;
+	cachedTokens: number;
+	cacheWriteTokens: number;
+	cacheHitTurns: number;
+	savedCostUsd: number;
+}
+
 export const state = {
 	config: { ...DEFAULT_CONFIG } as TranslateConfig,
 	/** Set when a prompt was translated; drives final-answer translation. */
@@ -29,6 +40,17 @@ export const state = {
 	sessionCostUsd: 0,
 	/** Confirmed words/symbols synchronized from pi-at-words. */
 	atWords: [] as string[],
+	/** Optimization, routing, and cache telemetry accumulated this session. */
+	telemetry: {
+		totalRequests: 0,
+		promptRequests: 0,
+		answerRequests: 0,
+		openRouterRequests: 0,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+		cacheHitTurns: 0,
+		savedCostUsd: 0,
+	} as TelemetryStats,
 };
 
 export function resetPending(): void {

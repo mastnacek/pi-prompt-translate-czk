@@ -51,6 +51,7 @@ Example (Czech input):
 
 ```
 /prompt-translate status                     Show full configuration and resolved model
+/prompt-translate stats                      Show telemetry, cache hit rate, and financial savings
 /prompt-translate on|off                     Enable/disable prompt translation
 /prompt-translate input on|off               Same as on|off
 /prompt-translate responses on|off           Translate final reply back to target language
@@ -66,6 +67,13 @@ Example (Czech input):
 /prompt-translate reset                      Reset all settings to defaults
 /prompt-translate help                       Command summary
 ```
+
+### OpenRouter Routing & Cache Optimization
+
+When using an OpenRouter model (e.g. `openrouter/google/gemini-3.5-flash-lite`), the extension automatically applies transport-layer optimizations without altering translation text or semantics:
+- **Provider Sticky Routing (`x-session-id`):** Pins all translation turns in a session to the same backend provider endpoint (10-min sliding window), keeping the provider's prompt cache warm and unlocking 50–90% cost discounts on repeated system prompt prefix tokens.
+- **Attribution Headers:** Sends `HTTP-Referer` and `X-Title: Pi Prompt Translate` to isolate translation metrics and analytics in your OpenRouter dashboard.
+- **Savings & Telemetry Accounting:** Automatically tracks cumulative cached tokens, cache write tokens, hit rates, and estimated dollar / CZK savings, viewable anytime via `/prompt-translate stats`.
 
 ### Temporary model with auto-fallback
 

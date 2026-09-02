@@ -225,6 +225,62 @@ export function formatCost(costUsd?: number, costCzk?: number): string {
 	return "(cost n/a)";
 }
 
+export async function formatTelemetryOverview(
+	ctx: ExtensionContext,
+): Promise<string> {
+	const tel = state.telemetry;
+	const effectiveModel = getEffectiveTranslateModel();
+	const czkRate = await getUsdToCzkRate(ctx.signal);
+	const hitRate =
+		tel.totalRequests > 0
+			? ((tel.cacheHitTurns / tel.totalRequests) * 100).toFixed(1)
+			: "0.0";
+	const costCzk =
+		typeof czkRate === "number" && czkRate > 0
+			? state.sessionCostUsd * czkRate
+			: undefined;
+	const savingsCzk =
+		typeof czkRate === "number" && czkRate > 0
+			? tel.savedCostUsd * czkRate
+			: undefined;
+
+	const formatUsdCzk = (usd: number, czk?: number) => {
+		if (typeof czk === "number") {
+			return `$${fmtSmallAmount(usd)} (~${fmtSmallAmount(czk)} Kč)`;
+		}
+		return `$${fmtSmallAmount(usd)}`;
+	};
+
+	return [
+		"═══════════════════════════════════════════════════════",
+		" 🚀 pi-prompt-translate — Telemetry & Optimizations",
+		"═══════════════════════════════════════════════════════",
+		"",
+		"📡 Model & OpenRouter Routing",
+		`  • Active Model:     ${effectiveModel.setting}`,
+		`  • App Attribution:  Pi Prompt Translate`,
+		`  • Sticky Routing:   ${tel.openRouterRequests > 0 ? "Active (x-session-id pinned)" : "Ready"}`,
+		`  • Total Requests:   ${tel.totalRequests} (${tel.promptRequests} prompts, ${tel.answerRequests} answers)`,
+		"",
+		"⚡ Prompt Caching & Performance",
+		`  • Cache Hit Rate:   ${hitRate}% (${tel.cacheHitTurns} of ${tel.totalRequests} turns hit cache)`,
+		`  • Tokens from Cache: ${tel.cachedTokens.toLocaleString()} tokens read`,
+		`  • Cache Writes:     ${tel.cacheWriteTokens.toLocaleString()} tokens written`,
+		"",
+		"💰 Cost Accounting & Savings",
+		`  • Total Incurred:   ${formatUsdCzk(state.sessionCostUsd, costCzk)}`,
+		`  • Saved via Cache:  ${formatUsdCzk(tel.savedCostUsd, savingsCzk)}`,
+		"",
+		"🔧 Active Optimizations",
+		"  [✔] x-session-id Sticky Provider Routing (10-min backend lock)",
+		"  [✔] OpenRouter Dashboard Analytics Attribution (X-Title / Referer)",
+		"  [✔] XML Source Isolation (<source_text> boundary)",
+		"  [✔] Token Masking (Code blocks, URLs, @mentions, ?symbols)",
+		"  [✔] Fuzzy & Lost-Token Recovery Fallback",
+		"═══════════════════════════════════════════════════════",
+	].join("\n");
+}
+
 export async function statusText(ctx: ExtensionContext): Promise<string> {
 	const config = state.config;
 	const configuredModel = config.translateModel;

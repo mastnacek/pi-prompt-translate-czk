@@ -39,9 +39,11 @@ import {
 	updateTranslateStatus,
 	debug,
 	formatCost,
+	formatTelemetryOverview,
 } from "./status";
 import { state } from "./state";
 import {
+	buildEffectiveHeaders,
 	cleanTranslationOutput,
 	createTranslationContext,
 	detectLanguageOrCode,
@@ -163,12 +165,14 @@ export const __test = {
 	DEFAULT_CONFIG,
 	ENGLISH_ONLY_AGENT_INSTRUCTION,
 	appendEnglishOnlyInstruction,
+	buildEffectiveHeaders,
 	buildEnglishOnlyInstruction,
 	cleanTranslationOutput,
 	createTranslationContext,
 	estimateTranslationMaxTokens,
 	extractGoalObjective,
 	extractLatestConfig,
+	formatTelemetryOverview,
 	getText,
 	hasToolCall,
 	normalizeConfig,
@@ -301,6 +305,9 @@ export default function (pi: ExtensionAPI) {
 		detect:
 			"automatická detekce angličtiny a kódu pro přeskočení překladu (on/off)",
 		balance: "zůstatek OpenRouter kreditu a kurz CZK (balance refresh)",
+		stats: "přehled telemetrie, úspor prompt cachingu a OpenRouter routingu",
+		telemetry: "alias pro stats",
+		savings: "alias pro stats",
 		debug: "podrobné logování překladu do UI (on/off)",
 		global: "správa globální konfigurace (show | off)",
 		reset: "resetuje všechna nastavení na výchozí hodnoty",
@@ -471,6 +478,14 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(await statusText(ctx), "info");
 				return;
 			}
+			if (
+				subcommand === "stats" ||
+				subcommand === "telemetry" ||
+				subcommand === "savings"
+			) {
+				ctx.ui.notify(await formatTelemetryOverview(ctx), "info");
+				return;
+			}
 			if (!subcommand || subcommand === "help") {
 				const effectiveModel = getEffectiveTranslateModel();
 				const helpText = [
@@ -487,6 +502,7 @@ export default function (pi: ExtensionAPI) {
 					"/prompt-translate think on|off      — uvažování (reasoning) překladového modelu",
 					"/prompt-translate original on|off   — zobrazení původního českého promptu",
 					"/prompt-translate balance [refresh] — zůstatek na OpenRouter a kurz ČNB",
+					"/prompt-translate stats            — přehled telemetrie, úspor a OpenRouter routingu",
 					"/prompt-translate global show|off   — trvalá globální konfigurace pro všechna sezení",
 					"/prompt-translate reset             — obnoví výchozí nastavení",
 					"Tip: přidejte --global k jakémukoli podpříkazu pro trvalé uložení.",

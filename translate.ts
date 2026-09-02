@@ -220,6 +220,30 @@ export function cleanTranslationOutput(text: string): string {
 	return cleaned;
 }
 
+export function buildEffectiveHeaders(
+	provider: string,
+	sessionId?: string,
+	baseHeaders?: Record<string, string | null>,
+): Record<string, string> {
+	const result: Record<string, string> = {};
+	if (baseHeaders) {
+		for (const [k, v] of Object.entries(baseHeaders)) {
+			if (v !== null && v !== undefined) {
+				result[k] = v;
+			}
+		}
+	}
+	if (provider === "openrouter") {
+		result["HTTP-Referer"] =
+			"https://github.com/mastnacek/pi-prompt-translate-czk";
+		result["X-Title"] = "Pi Prompt Translate";
+		if (sessionId && sessionId.trim().length > 0) {
+			result["x-session-id"] = sessionId.trim();
+		}
+	}
+	return result;
+}
+
 export function createTranslationContext(
 	systemPrompt: string,
 	text: string,
@@ -597,11 +621,17 @@ export async function translate(
 
 	const llmContext = createTranslationContext(systemPrompt, protectedInput.text);
 	const thinkOn = config.translateReasoning && model.reasoning === true;
+	const sessionId = ctx.sessionManager.getSessionId();
+	const effectiveHeaders = buildEffectiveHeaders(
+		model.provider,
+		sessionId,
+		headers,
+	);
 	const makeOptions = (
 		reasoning: ThinkingLevel | undefined,
 	): SimpleStreamOptions & { reasoningEffort?: ThinkingLevel } => ({
 		apiKey,
-		headers,
+		headers: effectiveHeaders,
 		env,
 		maxTokens: estimateTranslationMaxTokens(
 			model,
@@ -612,7 +642,7 @@ export async function translate(
 		reasoningEffort: reasoning,
 		thinkingBudgets: reasoning ? TRANSLATE_REASONING_BUDGET : undefined,
 		signal: ctx.signal,
-		sessionId: ctx.sessionManager.getSessionId(),
+		sessionId,
 	});
 	const instrumentedCompleteSimple = (ctx as ExtensionContextWithCompleteSimple)
 		.completeSimple;
@@ -746,6 +776,30 @@ export async function translate(
 	if (typeof costUsd === "number") {
 		state.sessionCostUsd += costUsd;
 		updateTranslateStatus(ctx);
+	}
+
+	// Record telemetry & optimization statistics
+	state.telemetry.totalRequests++;
+	if (purpose === "prompt") {
+		state.telemetry.promptRequests++;
+	} else {
+		state.telemetry.answerRequests++;
+	}
+	if (model.provider === "openrouter") {
+		state.telemetry.openRouterRequests++;
+	}
+	const cacheRead = response.usage.cacheRead ?? 0;
+	const cacheWrite = response.usage.cacheWrite ?? 0;
+	if (cacheRead > 0) {
+		state.telemetry.cachedTokens += cacheRead;
+		state.telemetry.cacheHitTurns++;
+		const inputRate = model.cost?.input ?? 0;
+		const cacheReadRate = model.cost?.cacheRead ?? inputRate * 0.1;
+		const savedTurnUsd = cacheRead * Math.max(0, inputRate - cacheReadRate);
+		state.telemetry.savedCostUsd += savedTurnUsd;
+	}
+	if (cacheWrite > 0) {
+		state.telemetry.cacheWriteTokens += cacheWrite;
 	}
 	return { text: translatedText, usage: response.usage, costUsd, costCzk };
 }

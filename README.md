@@ -19,6 +19,13 @@ balance readout.
 `/goal` objectives are translated too (only the objective text; the command
 scaffold is preserved).
 
+### Code, URL & Integrity Protection
+
+- **Token Masking:** Code blocks (`` `...` `` and ```` ```...``` ````), URLs (`http(s)://`, `file://`), `@file` mentions, `?symbol` queries, and XML contexts are masked with placeholder tokens before translation and restored after.
+- **XML Context Delimitation:** Prompts are cleanly isolated in `<source_text>` XML tags so models never confuse instructions with conversational commands. Echoed wrappers are safely stripped.
+- **Placeholder Integrity Fallback:** If a model modifies or drops a placeholder token, fuzzy matching and dropped-token safety recovery ensure that code and links are never lost.
+- **Technical Preservation:** Prompts enforce strict negative few-shot rules against translating CLI commands (`git clone`, `npm run`, flags) and code identifiers.
+
 ## Prompt enhancement levels (`boost`)
 
 Set with `/prompt-translate boost <level>`:

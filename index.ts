@@ -42,6 +42,7 @@ import {
 } from "./status";
 import { state } from "./state";
 import {
+	cleanTranslationOutput,
 	createTranslationContext,
 	detectLanguageOrCode,
 	estimateTranslationMaxTokens,
@@ -163,6 +164,7 @@ export const __test = {
 	ENGLISH_ONLY_AGENT_INSTRUCTION,
 	appendEnglishOnlyInstruction,
 	buildEnglishOnlyInstruction,
+	cleanTranslationOutput,
 	createTranslationContext,
 	estimateTranslationMaxTokens,
 	extractGoalObjective,

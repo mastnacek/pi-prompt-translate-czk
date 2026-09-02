@@ -124,7 +124,13 @@ export function protectPromptSegments(
 		addSegment(match),
 	);
 
-	// 6. Protect ? symbol queries (?myFunc, ?varName from pi-at-words)
+	// 6. Protect web URLs, git URLs, and file URLs
+	protectedText = protectedText.replace(
+		/(?:https?|git\+https?|ftp|file):\/\/[^\s<>)"]+?(?=[.,;:!?]*(?:\s|[<>)"]|$))/g,
+		(match) => addSegment(match),
+	);
+
+	// 7. Protect ? symbol queries (?myFunc, ?varName from pi-at-words)
 	protectedText = protectedText.replace(
 		/(?<=[ \t([{]|^)\?[A-Za-z0-9_]{2,}/g,
 		(match) => addSegment(match),
@@ -168,6 +174,12 @@ export function protectFinalAnswerSegments(text: string): ProtectedText {
 			shouldProtectTagName(tagName) ? addSegment(match) : match,
 	);
 
+	// Protect web URLs, git URLs, and file URLs
+	protectedText = protectedText.replace(
+		/(?:https?|git\+https?|ftp|file):\/\/[^\s<>)"]+?(?=[.,;:!?]*(?:\s|[<>)"]|$))/g,
+		(match) => addSegment(match),
+	);
+
 	return { text: protectedText, segments };
 }
 
@@ -177,9 +189,35 @@ export function restoreProtectedSegments(
 ): string {
 	let restored = text;
 	for (const segment of segments) {
-		restored = restored.split(segment.placeholder).join(segment.value);
+		if (restored.includes(segment.placeholder)) {
+			restored = restored.split(segment.placeholder).join(segment.value);
+		} else {
+			// Fallback: handle slight model formatting mutations (e.g. missing underscores or spaces)
+			const fuzzyRegex = new RegExp(
+				segment.placeholder.replace(/_/g, "[_\\s]?"),
+				"i",
+			);
+			if (fuzzyRegex.test(restored)) {
+				restored = restored.replace(fuzzyRegex, segment.value);
+			} else {
+				// Safety recovery: if the placeholder was completely dropped by the model,
+				// append the protected payload to ensure critical code, links, or files are not lost.
+				restored = `${restored.trimEnd()}\n\n${segment.value}`;
+			}
+		}
 	}
 	return restored;
+}
+
+export function cleanTranslationOutput(text: string): string {
+	let cleaned = text.trim();
+	const tagMatch = cleaned.match(
+		/^<(?:source_text|translation)>\s*([\s\S]*?)\s*<\/(?:source_text|translation)>$/i,
+	);
+	if (tagMatch) {
+		cleaned = tagMatch[1].trim();
+	}
+	return cleaned;
 }
 
 export function createTranslationContext(
@@ -189,7 +227,12 @@ export function createTranslationContext(
 	return {
 		systemPrompt,
 		// Omit volatile timestamps from translation-only requests to improve provider prompt-cache hits.
-		messages: [{ role: "user", content: text } as never],
+		messages: [
+			{
+				role: "user",
+				content: `<source_text>\n${text}\n</source_text>`,
+			} as never,
+		],
 		tools: undefined,
 	};
 }
@@ -439,6 +482,11 @@ export function detectLanguageOrCode(text: string): {
 		return { isEnglishOrCode: true, reason: "command_or_script" };
 	}
 
+	// 1b. Standalone URL
+	if (/^(?:https?|git\+https?|ftp|file):\/\/[^\s]+$/.test(trimmed)) {
+		return { isEnglishOrCode: true, reason: "url_only" };
+	}
+
 	// 2. Code blocks (```...```) or pure structured formats (JSON, diff)
 	if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
 		return { isEnglishOrCode: true, reason: "code_block" };
@@ -541,8 +589,9 @@ export async function translate(
 						? PROMPT_BOOST_SYSTEM_PROMPT
 						: PROMPT_TRANSLATE_SYSTEM_PROMPT
 			: [
-					`Translate to ${targetLanguage}. Output only the translation.`,
-					"Keep code, paths, commands, markdown, JSON, placeholders, XML-like tags, machine-readable sections, and protected tokens unchanged.",
+					`Translate the text inside <source_text> to ${targetLanguage}. Output ONLY the translation.`,
+					"Do not wrap your output in <source_text> tags, and do not add commentary.",
+					"Keep code, paths, commands, flags, markdown, URLs, JSON, placeholders, XML-like tags, machine-readable sections, and protected tokens unchanged.",
 					"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
 				].join("\n");
 
@@ -681,8 +730,9 @@ export async function translate(
 		ctx,
 		`${purpose} translation usage: ${formatUsage(response.usage, czkRate)}`,
 	);
+	const cleanedOutput = cleanTranslationOutput(getText(response).trim());
 	const translatedText = restoreProtectedSegments(
-		getText(response).trim(),
+		cleanedOutput,
 		protectedInput.segments,
 	);
 	const costUsd =

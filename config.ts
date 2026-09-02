@@ -157,6 +157,15 @@ export function normalizeConfig(
 				: (value as { boost?: BoostLevel | boolean }).boost === false
 					? "off"
 					: (value.boost ?? DEFAULT_CONFIG.boost),
+		historyMode:
+			value.historyMode === "ask" ||
+			value.historyMode === "auto" ||
+			value.historyMode === "always" ||
+			value.historyMode === "off"
+				? value.historyMode
+				: (value.historyMode as unknown) === true
+					? "ask"
+					: DEFAULT_CONFIG.historyMode,
 		showOriginal: value.showOriginal ?? DEFAULT_CONFIG.showOriginal,
 		diff: value.diff ?? DEFAULT_CONFIG.diff,
 		autodetect: value.autodetect ?? DEFAULT_CONFIG.autodetect,

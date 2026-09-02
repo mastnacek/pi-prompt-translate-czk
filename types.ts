@@ -25,6 +25,13 @@ export type TranslateModelSetting =
  *  "mega" = full restructure into imperative, ordered tasks. */
 export type BoostLevel = "off" | "boost" | "plus" | "mega";
 
+/** Conversation history injection mode for prompt translation:
+ *  "off" = pure stateless translation (default)
+ *  "ask" = interactive confirmation before translation asking whether to include recent Q&A history
+ *  "auto" = include history automatically if deictic/pronoun references are detected
+ *  "always" = always include recent conversation history without asking */
+export type HistoryMode = "off" | "ask" | "auto" | "always";
+
 export type TranslateConfig = {
 	enabled: boolean;
 	translateResponses: boolean;
@@ -40,6 +47,8 @@ export type TranslateConfig = {
 	/** Prompt enhancement level applied while translating (single LLM call).
 	 *  "boost" = light faithful clarity edit, "mega" = restructure into ordered tasks. */
 	boost: BoostLevel;
+	/** Conversation history injection mode. */
+	historyMode: HistoryMode;
 	/** When on, the original (untranslated) prompt is rendered above the translated
 	 *  user message in a box with a distinct background color. */
 	showOriginal: boolean;
@@ -123,6 +132,7 @@ export const DEFAULT_CONFIG: TranslateConfig = {
 	translateModel: "openrouter/google/gemini-3.5-flash-lite",
 	translateReasoning: true,
 	boost: "off",
+	historyMode: "off",
 	showOriginal: true,
 	diff: true,
 	autodetect: true,

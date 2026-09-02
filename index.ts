@@ -48,7 +48,9 @@ import {
 	createTranslationContext,
 	detectLanguageOrCode,
 	estimateTranslationMaxTokens,
+	extractRecentContext,
 	getText,
+	hasDeicticReferences,
 	hasToolCall,
 	protectFinalAnswerSegments,
 	restoreProtectedSegments,
@@ -172,8 +174,10 @@ export const __test = {
 	estimateTranslationMaxTokens,
 	extractGoalObjective,
 	extractLatestConfig,
+	extractRecentContext,
 	formatTelemetryOverview,
 	getText,
+	hasDeicticReferences,
 	hasToolCall,
 	normalizeConfig,
 	normalizeLanguage,
@@ -304,6 +308,8 @@ export default function (pi: ExtensionAPI) {
 		diff: "zobrazení porovnání původního a vylepšeného promptu + tokeny (on/off)",
 		detect:
 			"automatická detekce angličtiny a kódu pro přeskočení překladu (on/off)",
+		history:
+			"režim vkládání historie konverzace (off | ask | auto | always)",
 		balance: "zůstatek OpenRouter kreditu a kurz CZK (balance refresh)",
 		stats: "přehled telemetrie, úspor prompt cachingu a OpenRouter routingu",
 		telemetry: "alias pro stats",
@@ -371,6 +377,35 @@ export default function (pi: ExtensionAPI) {
 							value: "boost mega",
 							label: "boost mega",
 							description: "plné přeformulování na číslované úkoly",
+						},
+					];
+					const filtered = items.filter((i) =>
+						i.value.toLowerCase().startsWith(normalizedPrefix),
+					);
+					return filtered.length > 0 ? filtered : null;
+				}
+
+				if (cmd === "history") {
+					const items = [
+						{
+							value: "history off",
+							label: "history off",
+							description: "vypnuto (bez historie)",
+						},
+						{
+							value: "history ask",
+							label: "history ask",
+							description: "interaktivní dotaz před každým promptem",
+						},
+						{
+							value: "history auto",
+							label: "history auto",
+							description: "automaticky při detekci zájmen/odkazů",
+						},
+						{
+							value: "history always",
+							label: "history always",
+							description: "vždy připojit nedávnou historii",
 						},
 					];
 					const filtered = items.filter((i) =>
@@ -501,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 					"/prompt-translate model <model>     — model pro překlad (current|default|<prov>/<mod>)",
 					"/prompt-translate think on|off      — uvažování (reasoning) překladového modelu",
 					"/prompt-translate original on|off   — zobrazení původního českého promptu",
+					"/prompt-translate history [mode]    — historie konverzace (off|ask|auto|always)",
 					"/prompt-translate balance [refresh] — zůstatek na OpenRouter a kurz ČNB",
 					"/prompt-translate stats            — přehled telemetrie, úspor a OpenRouter routingu",
 					"/prompt-translate global show|off   — trvalá globální konfigurace pro všechna sezení",
@@ -693,6 +729,41 @@ export default function (pi: ExtensionAPI) {
 				);
 				return;
 			}
+			if (subcommand === "history") {
+				const value = (rest[0] ?? "").toLowerCase();
+				const mode =
+					value === "on" || value === "ask"
+						? "ask"
+						: value === "off"
+							? "off"
+							: value === "auto"
+								? "auto"
+								: value === "always"
+									? "always"
+									: undefined;
+				if (!mode) {
+					ctx.ui.notify(
+						`prompt-translate history: aktuálně ${config.historyMode}. Použití: /prompt-translate history off|ask|auto|always|on — ask = dotázat se před každým překladem, auto = automaticky při detekci zájmen, always = vždy, off = bez historie`,
+						"info",
+					);
+					return;
+				}
+				config.historyMode = mode;
+				persist();
+				ctx.ui.notify(
+					`prompt-translate history context: ${mode}${
+						mode === "ask"
+							? " (interaktivní dotaz před překladem, zda připojit nedávnou historii)"
+							: mode === "auto"
+								? " (automatické připojení historie při detekci zájmen/odkazů)"
+								: mode === "always"
+									? " (nedávná historie konverzace se připojuje vždy)"
+									: " (překlad bez historie konverzace)"
+					}`,
+					"info",
+				);
+				return;
+			}
 			if (subcommand === "diff") {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
@@ -862,12 +933,43 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
+		let conversationContext: string | undefined;
+		if (state.config.historyMode === "always") {
+			conversationContext = extractRecentContext(ctx);
+		} else if (state.config.historyMode === "auto") {
+			if (hasDeicticReferences(textToTranslate)) {
+				conversationContext = extractRecentContext(ctx);
+				if (conversationContext) {
+					debug(
+						ctx,
+						"auto-detected reference words; attached conversation context to translator",
+					);
+				}
+			}
+		} else if (state.config.historyMode === "ask" && ctx.hasUI) {
+			const candidate = extractRecentContext(ctx);
+			if (candidate) {
+				const sendHistory = await ctx.ui.confirm(
+					"Kontext překladu",
+					"Připojit nedávnou historii konverzace k překladu pro přesnější návaznost?",
+				);
+				if (sendHistory) {
+					conversationContext = candidate;
+					debug(
+						ctx,
+						"user confirmed attaching conversation context to translator",
+					);
+				}
+			}
+		}
+
 		try {
 			const translated = await translate(
 				ctx,
 				textToTranslate,
 				"English",
 				"prompt",
+				conversationContext,
 			);
 			if (ctx.hasUI)
 				ctx.ui.notify(

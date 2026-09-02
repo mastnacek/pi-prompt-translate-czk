@@ -4,6 +4,8 @@ import {
 	cleanTranslationOutput,
 	createTranslationContext,
 	detectLanguageOrCode,
+	extractRecentContext,
+	hasDeicticReferences,
 	protectFinalAnswerSegments,
 	protectPromptSegments,
 	restoreProtectedSegments,
@@ -273,5 +275,74 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 		expect(overview).toContain("Tokens from Cache: 2,500");
 		expect(overview).toContain("Sticky Routing:   Active (x-session-id pinned)");
 		expect(overview).toContain("Saved via Cache:");
+	});
+
+	it("detects deictic reference words indicating conversational dependency", () => {
+		expect(hasDeicticReferences("udělej to taky pro druhou metodu")).toBe(true);
+		expect(hasDeicticReferences("proč to hází chybu?")).toBe(true);
+		expect(hasDeicticReferences("tento kód nefunguje")).toBe(true);
+		expect(hasDeicticReferences("stejný problém jako minule")).toBe(true);
+		expect(hasDeicticReferences("vytvoř novou funkci calculate()")).toBe(false);
+	});
+
+	it("wraps conversation context into <conversation_context> XML tags", () => {
+		const ctxWithHistory = createTranslationContext(
+			"system prompt",
+			"udělej to taky",
+			"User: Refactor db.ts\nAssistant: Done.",
+		);
+		expect(ctxWithHistory.messages[0].content).toContain(
+			"<conversation_context>\nUser: Refactor db.ts\nAssistant: Done.\n</conversation_context>",
+		);
+		expect(ctxWithHistory.messages[0].content).toContain(
+			"<source_text>\nudělej to taky\n</source_text>",
+		);
+
+		const ctxWithoutHistory = createTranslationContext(
+			"system prompt",
+			"udělej to taky",
+		);
+		expect(ctxWithoutHistory.messages[0].content).not.toContain(
+			"<conversation_context>",
+		);
+	});
+
+	it("extracts recent conversation context from session manager entries", () => {
+		const mockContext = {
+			sessionManager: {
+				buildContextEntries: () => [
+					{
+						type: "message",
+						message: { role: "user", content: "Můžeš zkontrolovat db.ts?" },
+					},
+					{
+						type: "message",
+						message: {
+							role: "assistant",
+							content: [
+								{ type: "text", text: "Zkontrolováno, spojení je opravené." },
+							],
+						},
+					},
+					{
+						type: "other_entry",
+					},
+				],
+			},
+		} as never;
+
+		const extracted = extractRecentContext(mockContext);
+		expect(extracted).toContain("User: Můžeš zkontrolovat db.ts?");
+		expect(extracted).toContain(
+			"Assistant: Zkontrolováno, spojení je opravené.",
+		);
+	});
+
+	it("cleans echoed conversation_context from model output", () => {
+		const echoed =
+			"<conversation_context>User: foo\nAssistant: bar</conversation_context>\nRefactor the second function.";
+		expect(cleanTranslationOutput(echoed)).toBe(
+			"Refactor the second function.",
+		);
 	});
 });

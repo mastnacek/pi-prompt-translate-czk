@@ -58,6 +58,7 @@ Example (Czech input):
 /prompt-translate lang <language>            Target language for replies (default Czech)
 /prompt-translate model <m> [until DATE]     Set translate model; optional auto-expiry
 /prompt-translate boost off|on|plus|mega    Prompt enhancement level (see table above)
+/prompt-translate history off|ask|auto|always Conversation context injection mode
 /prompt-translate diff on|off                Show side-by-side prompt diff with token count and cost
 /prompt-translate detect on|off              Auto-skip translation if prompt is already English or code
 /prompt-translate think on|off               Use reasoning on the translate model (low effort, capped)
@@ -75,7 +76,17 @@ When using an OpenRouter model (e.g. `openrouter/google/gemini-3.5-flash-lite`),
 - **Attribution Headers:** Sends `HTTP-Referer` and `X-Title: Pi Prompt Translate` to isolate translation metrics and analytics in your OpenRouter dashboard.
 - **Savings & Telemetry Accounting:** Automatically tracks cumulative cached tokens, cache write tokens, hit rates, and estimated dollar / CZK savings, viewable anytime via `/prompt-translate stats`.
 
-### Temporary model with auto-fallback
+### Conversation History Context & Interactive Toggle
+
+When following up on previous assistant responses (e.g. *"udělej to taky pro druhou funkci"*, *"proč to nefunguje?"*), natural language contains pronouns and deictic references that pure stateless translation cannot resolve.
+
+Configure with `/prompt-translate history <mode>`:
+- **`off` (default):** Pure stateless translation (minimum token usage).
+- **`ask` (or `on`):** Prompts you interactively via TUI before each translation asking whether to include recent conversation context.
+- **`auto`:** Automatically includes recent context when deictic references (e.g. *to*, *tento*, *druhou*, *stejně*, *předchozí*) are detected in the prompt.
+- **`always`:** Always attaches the last 1–2 turns of context into the translation request.
+
+When active, conversation history is fenced in `<conversation_context>` tags. The model uses it strictly for pronoun/reference resolution while translating only `<source_text>`.
 
 ```
 /prompt-translate model openrouter/google/gemini-3.7-flash until 2026-08-26

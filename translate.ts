@@ -217,6 +217,10 @@ export function cleanTranslationOutput(text: string): string {
 	if (tagMatch) {
 		cleaned = tagMatch[1].trim();
 	}
+	// Strip accidental echoing of conversation_context if any
+	cleaned = cleaned
+		.replace(/<conversation_context>[\s\S]*?<\/conversation_context>/gi, "")
+		.trim();
 	return cleaned;
 }
 
@@ -244,17 +248,93 @@ export function buildEffectiveHeaders(
 	return result;
 }
 
+export function hasDeicticReferences(text: string): boolean {
+	const normalized = text.toLowerCase();
+	return /(?<![\p{L}\p{N}_])(to|ten|ta|ti|ty|tento|tato|toto|tyto|tohle|tamto|tamten|taky|také|stejně|stejný|stejnou|druhou|druhý|druhé|další|předchozí|výše|minulý|minulou|minule|stále|pořád)(?![\p{L}\p{N}_])/iu.test(
+		normalized,
+	);
+}
+
+export function extractRecentContext(
+	ctx: ExtensionContext,
+	maxTurns = 2,
+	maxChars = 600,
+): string | undefined {
+	const sessionManager = ctx.sessionManager;
+	if (!sessionManager) return undefined;
+
+	let entries: unknown[];
+	try {
+		if (typeof sessionManager.buildContextEntries === "function") {
+			entries = sessionManager.buildContextEntries();
+		} else if (typeof sessionManager.getEntries === "function") {
+			entries = sessionManager.getEntries();
+		} else {
+			return undefined;
+		}
+	} catch {
+		return undefined;
+	}
+
+	const messages: Array<{ role: string; text: string }> = [];
+	for (const entry of entries) {
+		if (!entry || typeof entry !== "object") continue;
+		const e = entry as {
+			type?: string;
+			message?: { role?: string; content?: unknown };
+		};
+		if (e.type !== "message" || !e.message) continue;
+		const role = e.message.role;
+		if (role !== "user" && role !== "assistant") continue;
+
+		let text = "";
+		if (typeof e.message.content === "string") {
+			text = e.message.content;
+		} else if (Array.isArray(e.message.content)) {
+			text = e.message.content
+				.filter(
+					(part: { type?: string; text?: string }) =>
+						part && part.type === "text" && typeof part.text === "string",
+				)
+				.map((part: { text: string }) => part.text)
+				.join(" ");
+		}
+		const cleanText = text.trim().replace(/\s+/g, " ");
+		if (cleanText) {
+			messages.push({ role, text: cleanText });
+		}
+	}
+
+	if (messages.length === 0) return undefined;
+
+	const recent = messages.slice(-maxTurns * 2);
+	const lines = recent.map((m) => {
+		const label = m.role === "user" ? "User" : "Assistant";
+		const snippet =
+			m.text.length > maxChars ? `${m.text.slice(0, maxChars)}…` : m.text;
+		return `${label}: ${snippet}`;
+	});
+
+	return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
 export function createTranslationContext(
 	systemPrompt: string,
 	text: string,
+	conversationContext?: string,
 ): Context {
+	const userContent =
+		conversationContext && conversationContext.trim().length > 0
+			? `<conversation_context>\n${conversationContext.trim()}\n</conversation_context>\n\n<source_text>\n${text}\n</source_text>`
+			: `<source_text>\n${text}\n</source_text>`;
+
 	return {
 		systemPrompt,
 		// Omit volatile timestamps from translation-only requests to improve provider prompt-cache hits.
 		messages: [
 			{
 				role: "user",
-				content: `<source_text>\n${text}\n</source_text>`,
+				content: userContent,
 			} as never,
 		],
 		tools: undefined,
@@ -576,6 +656,7 @@ export async function translate(
 	text: string,
 	targetLanguage: string,
 	purpose: "prompt" | "answer",
+	conversationContext?: string,
 ): Promise<TranslationResult> {
 	const config = state.config;
 	// Resolve the translate model; when a temporary override is broken (not found,
@@ -619,7 +700,11 @@ export async function translate(
 					"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
 				].join("\n");
 
-	const llmContext = createTranslationContext(systemPrompt, protectedInput.text);
+	const llmContext = createTranslationContext(
+		systemPrompt,
+		protectedInput.text,
+		conversationContext,
+	);
 	const thinkOn = config.translateReasoning && model.reasoning === true;
 	const sessionId = ctx.sessionManager.getSessionId();
 	const effectiveHeaders = buildEffectiveHeaders(

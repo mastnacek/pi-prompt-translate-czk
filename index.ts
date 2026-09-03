@@ -34,12 +34,16 @@ import {
 } from "./config";
 import { extractGoalObjective, installPromptInterceptor } from "./goal";
 import {
+	buildHelpText,
+	formatActiveValue,
+	formatChoice,
+	formatConfirmationBody,
+	formatCost,
+	formatTelemetryOverview,
 	refreshBalanceStatus,
 	statusText,
 	updateTranslateStatus,
 	debug,
-	formatCost,
-	formatTelemetryOverview,
 } from "./status";
 import { state } from "./state";
 import {
@@ -310,32 +314,39 @@ export default function (pi: ExtensionAPI) {
 		updateTranslateStatus(ctx);
 	});
 
-	const TRANSLATE_TOGGLE_DOCS: Record<string, string> = {
-		on: "zapne překlad promptů do angličtiny",
-		off: "vypne překlad promptů",
-		status: "zobrazí podrobný stav překladu a zůstatek",
-		input: "přepínač překladu uživatelských promptů (on/off)",
-		responses: "přepínač překladu odpovědí asistenta zpět (on/off)",
-		lang: "cílový jazyk pro odpovědi (např. Czech, German)",
-		model: "model pro překlad (current | default | provider/model)",
-		think: "přepínač reasoning/thinking pro překladový model (on/off)",
-		boost: "úroveň vylepšení promptu (off | on | plus | mega)",
-		original: "zobrazení původního promptu nad překladem (on/off)",
-		diff: "zobrazení porovnání původního a vylepšeného promptu + tokeny (on/off)",
-		detect:
-			"automatická detekce angličtiny a kódu pro přeskočení překladu (on/off)",
-		history:
-			"režim vkládání historie konverzace (off | ask | auto | always | inspect)",
-		confirm: "potvrzení přeloženého promptu před odesláním agentovi (on/off)",
-		balance: "zůstatek OpenRouter kreditu a kurz CZK (balance refresh)",
-		stats: "přehled telemetrie, úspor prompt cachingu a OpenRouter routingu",
-		telemetry: "alias pro stats",
-		savings: "alias pro stats",
-		debug: "podrobné logování překladu do UI (on/off)",
-		global: "správa globální konfigurace (show | off)",
-		reset: "resetuje všechna nastavení na výchozí hodnoty",
-		help: "zobrazí podrobnou nápovědu",
-	};
+	function getCommandDocs(cfg: TranslateConfig): Record<string, string> {
+		const onOff = (v: boolean) => (v ? "[● ON]" : "[○ OFF]");
+		const effectiveModel = getEffectiveTranslateModel();
+		const modelLabel =
+			cfg.temporaryModel && cfg.temporaryModelUntil
+				? `${cfg.temporaryModel} (til ${cfg.temporaryModelUntil})`
+				: effectiveModel.setting;
+
+		return {
+			on: "zapne překlad promptů do angličtiny",
+			off: "vypne překlad promptů",
+			status: "zobrazí podrobný stav překladu a zůstatek",
+			input: `přepínač překladu uživatelských promptů ${onOff(cfg.enabled)}`,
+			responses: `přepínač překladu odpovědí asistenta zpět ${onOff(cfg.translateResponses)}`,
+			lang: `cílový jazyk pro odpovědi [● ${cfg.targetLanguage}]`,
+			model: `model pro překlad [● ${modelLabel}]`,
+			think: `přepínač reasoning/thinking pro překladový model ${onOff(cfg.translateReasoning)}`,
+			boost: `úroveň vylepšení promptu [● ${cfg.boost}]`,
+			confirm: `potvrzení přeloženého promptu před odesláním ${onOff(cfg.confirm)}`,
+			history: `režim vkládání historie konverzace [● ${cfg.historyMode}]`,
+			original: `zobrazení původního promptu nad překladem ${onOff(cfg.showOriginal)}`,
+			diff: `zobrazení porovnání původního a vylepšeného promptu ${onOff(cfg.diff)}`,
+			detect: `automatická detekce angličtiny a kódu ${onOff(cfg.autodetect)}`,
+			balance: "zůstatek OpenRouter kreditu a kurz ČNB (balance refresh)",
+			stats: "přehled telemetrie, úspor prompt cachingu a OpenRouter routingu",
+			telemetry: "alias pro stats",
+			savings: "alias pro stats",
+			debug: `podrobné logování překladu do UI ${onOff(cfg.debug)}`,
+			global: "správa globální konfigurace (show | off)",
+			reset: "resetuje všechna nastavení na výchozí hodnoty",
+			help: "zobrazí podrobnou nápovědu",
+		};
+	}
 
 	pi.registerCommand("prompt-translate", {
 		description:
@@ -348,6 +359,7 @@ export default function (pi: ExtensionAPI) {
 			// Druhé slovo — kontextové dokončování podle podpříkazu
 			if (tokens.length > 1 || (trailingSpace && tokens.length === 1)) {
 				const cmd = tokens[0].toLowerCase();
+				const cfg = state.config;
 
 				if (
 					[
@@ -364,9 +376,30 @@ export default function (pi: ExtensionAPI) {
 						"debug",
 					].includes(cmd)
 				) {
+					let currentVal = false;
+					if (cmd === "input") currentVal = cfg.enabled;
+					else if (["responses", "response"].includes(cmd))
+						currentVal = cfg.translateResponses;
+					else if (["think", "thinking"].includes(cmd))
+						currentVal = cfg.translateReasoning;
+					else if (cmd === "confirm") currentVal = cfg.confirm;
+					else if (cmd === "original") currentVal = cfg.showOriginal;
+					else if (cmd === "diff") currentVal = cfg.diff;
+					else if (["detect", "autodetect"].includes(cmd))
+						currentVal = cfg.autodetect;
+					else if (cmd === "debug") currentVal = cfg.debug;
+
 					const items = [
-						{ value: `${cmd} on`, label: `${cmd} on`, description: "zapnout" },
-						{ value: `${cmd} off`, label: `${cmd} off`, description: "vypnout" },
+						{
+							value: `${cmd} on`,
+							label: `${cmd} on`,
+							description: `zapnout${currentVal ? " · ● AKTIVNÍ" : ""}`,
+						},
+						{
+							value: `${cmd} off`,
+							label: `${cmd} off`,
+							description: `vypnout${!currentVal ? " · ● AKTIVNÍ" : ""}`,
+						},
 					];
 					const filtered = items.filter((i) =>
 						i.value.toLowerCase().startsWith(normalizedPrefix),
@@ -375,26 +408,27 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				if (cmd === "boost") {
+					const currentBoost = cfg.boost;
 					const items = [
 						{
 							value: "boost off",
 							label: "boost off",
-							description: "vypnuto (přímý překlad)",
+							description: `vypnuto (přímý překlad)${currentBoost === "off" ? " · ● AKTIVNÍ" : ""}`,
 						},
 						{
 							value: "boost on",
 							label: "boost on",
-							description: "jemné vyjasnění (clarity edit)",
+							description: `jemné vyjasnění (clarity edit)${currentBoost === "boost" ? " · ● AKTIVNÍ" : ""}`,
 						},
 						{
 							value: "boost plus",
 							label: "boost plus",
-							description: "imperativ + lehká struktura",
+							description: `imperativ + lehká struktura${currentBoost === "plus" ? " · ● AKTIVNÍ" : ""}`,
 						},
 						{
 							value: "boost mega",
 							label: "boost mega",
-							description: "plné přeformulování na číslované úkoly",
+							description: `plné přeformulování na číslované úkoly${currentBoost === "mega" ? " · ● AKTIVNÍ" : ""}`,
 						},
 					];
 					const filtered = items.filter((i) =>
@@ -404,26 +438,27 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				if (cmd === "history") {
+					const currentMode = cfg.historyMode;
 					const items = [
 						{
 							value: "history off",
 							label: "history off",
-							description: "vypnuto (bez historie)",
+							description: `vypnuto (bez historie)${currentMode === "off" ? " · ● AKTIVNÍ" : ""}`,
 						},
 						{
 							value: "history ask",
 							label: "history ask",
-							description: "interaktivní dotaz před každým promptem",
+							description: `interaktivní dotaz před každým promptem${currentMode === "ask" ? " · ● AKTIVNÍ" : ""}`,
 						},
 						{
 							value: "history auto",
 							label: "history auto",
-							description: "automaticky při detekci zájmen/odkazů",
+							description: `automaticky při detekci zájmen/odkazů${currentMode === "auto" ? " · ● AKTIVNÍ" : ""}`,
 						},
 						{
 							value: "history always",
 							label: "history always",
-							description: "vždy připojit nedávnou historii",
+							description: `vždy připojit nedávnou historii${currentMode === "always" ? " · ● AKTIVNÍ" : ""}`,
 						},
 						{
 							value: "history inspect",
@@ -472,16 +507,23 @@ export default function (pi: ExtensionAPI) {
 
 				if (cmd === "model") {
 					const available = getAvailableModels(state.sessionCtx);
-					const items: AutocompleteItem[] = available.map((m) => ({
-						value: `model ${m}`,
-						label: `model ${m}`,
-						description:
-							m === "current"
-								? "použít aktuální model konverzace"
-								: m === "default"
-									? "použít výchozí překladový model"
-									: `použít model ${m}`,
-					}));
+					const activeModel = cfg.temporaryModel ?? cfg.translateModel;
+					const items: AutocompleteItem[] = available.map((m) => {
+						const isActive =
+							m === activeModel ||
+							(m === "default" && activeModel === DEFAULT_CONFIG.translateModel);
+						let baseDesc = `použít model ${m}`;
+						if (m === "current") {
+							baseDesc = "použít aktuální model konverzace";
+						} else if (m === "default") {
+							baseDesc = "použít výchozí překladový model";
+						}
+						return {
+							value: `model ${m}`,
+							label: `model ${m}`,
+							description: `${baseDesc}${isActive ? " · ● AKTIVNÍ" : ""}`,
+						};
+					});
 					const filtered = items.filter((i) =>
 						i.value.toLowerCase().startsWith(normalizedPrefix),
 					);
@@ -489,6 +531,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				if (["lang", "language", "target"].includes(cmd)) {
+					const currentLang = cfg.targetLanguage.toLowerCase();
 					const languages = [
 						{ value: "Czech", description: "čeština" },
 						{ value: "English", description: "angličtina" },
@@ -501,7 +544,7 @@ export default function (pi: ExtensionAPI) {
 					const items = languages.map((l) => ({
 						value: `${cmd} ${l.value}`,
 						label: `${cmd} ${l.value}`,
-						description: l.description,
+						description: `${l.description}${l.value.toLowerCase() === currentLang ? " · ● AKTIVNÍ" : ""}`,
 					}));
 					const filtered = items.filter((i) =>
 						i.value.toLowerCase().startsWith(normalizedPrefix),
@@ -514,9 +557,12 @@ export default function (pi: ExtensionAPI) {
 
 			// První slovo — podpříkazy
 			const typed = (tokens[0] ?? "").toLowerCase();
-			const items = Object.entries(TRANSLATE_TOGGLE_DOCS)
-				.filter(([key]) => key.toLowerCase().startsWith(typed))
-				.map(([value, description]) => ({ value, label: value, description }));
+			const docs = getCommandDocs(state.config);
+			const items = Object.entries(docs).flatMap(([value, description]) =>
+				value.toLowerCase().startsWith(typed)
+					? [{ value, label: value, description }]
+					: [],
+			);
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, ctx) => {
@@ -545,32 +591,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			if (!subcommand || subcommand === "help") {
-				const effectiveModel = getEffectiveTranslateModel();
-				const helpText = [
-					`pi-prompt-translate — stav: vstupy ${config.enabled ? "ON" : "OFF"}, odpovědi ${config.translateResponses ? "ON" : "OFF"}`,
-					"Překládá české prompty do angličtiny pro vyšší kvalitu uvažování LLM a volitelně překládá odpovědi zpět.",
-					"",
-					"Příkazy:",
-					"/prompt-translate                   — tato nápověda + stav",
-					"/prompt-translate on|off            — hlavní vypínač překladu promptů",
-					"/prompt-translate responses on|off  — překlad odpovědí asistenta zpět",
-					"/prompt-translate lang <jazyk>      — cílový jazyk (např. Czech)",
-					"/prompt-translate boost off|on|plus|mega — úroveň vylepšení promptu",
-					"/prompt-translate model <model>     — model pro překlad (current|default|<prov>/<mod>)",
-					"/prompt-translate think on|off      — uvažování (reasoning) překladového modelu",
-					"/prompt-translate confirm on|off    — vyžadovat potvrzení přeloženého promptu před odesláním",
-					"/prompt-translate original on|off   — zobrazení původního českého promptu",
-					"/prompt-translate history [mode]    — historie konverzace (off|ask|auto|always|inspect)",
-					"/prompt-translate balance [refresh] — zůstatek na OpenRouter a kurz ČNB",
-					"/prompt-translate stats            — přehled telemetrie, úspor a OpenRouter routingu",
-					"/prompt-translate global show|off   — trvalá globální konfigurace pro všechna sezení",
-					"/prompt-translate reset             — obnoví výchozí nastavení",
-					"Tip: přidejte --global k jakémukoli podpříkazu pro trvalé uložení.",
-					"",
-					`Nastavení: cíl=${config.targetLanguage} | boost=${config.boost} | model=${effectiveModel.setting} | think=${config.translateReasoning ? "ON" : "OFF"}`,
-					`Cena sezení: $${state.sessionCostUsd.toFixed(4)}`,
-				].join("\n");
-				ctx.ui.notify(helpText, "info");
+				ctx.ui.notify(buildHelpText(config, state.sessionCostUsd), "info");
 				return;
 			}
 			if (subcommand === "on" || subcommand === "enable") {
@@ -594,7 +615,10 @@ export default function (pi: ExtensionAPI) {
 			if (["input", "prompt", "prompts"].includes(subcommand)) {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
-					ctx.ui.notify("Usage: /prompt-translate input on|off", "warning");
+					ctx.ui.notify(
+						`prompt-translate input: ${formatChoice(["on", "off"], config.enabled)}\nPoužití: /prompt-translate input on|off`,
+						"info",
+					);
 					return;
 				}
 				config.enabled = value === "on";
@@ -611,7 +635,10 @@ export default function (pi: ExtensionAPI) {
 			) {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
-					ctx.ui.notify("Usage: /prompt-translate responses on|off", "warning");
+					ctx.ui.notify(
+						`prompt-translate responses: ${formatChoice(["on", "off"], config.translateResponses)}\nPoužití: /prompt-translate responses on|off`,
+						"info",
+					);
 					return;
 				}
 				config.translateResponses = value === "on";
@@ -628,7 +655,10 @@ export default function (pi: ExtensionAPI) {
 			) {
 				const language = normalizeLanguage(rest.join(" "));
 				if (!language) {
-					ctx.ui.notify("Usage: /prompt-translate lang <language>", "warning");
+					ctx.ui.notify(
+						`prompt-translate target language: ${formatActiveValue(config.targetLanguage)}\nPoužití: /prompt-translate lang <language>`,
+						"info",
+					);
 					return;
 				}
 				config.targetLanguage = language;
@@ -707,7 +737,10 @@ export default function (pi: ExtensionAPI) {
 			) {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
-					ctx.ui.notify("Usage: /prompt-translate think on|off", "warning");
+					ctx.ui.notify(
+						`prompt-translate thinking: ${formatChoice(["on", "off"], config.translateReasoning)}\nPoužití: /prompt-translate think on|off`,
+						"info",
+					);
 					return;
 				}
 				config.translateReasoning = value === "on";
@@ -731,8 +764,8 @@ export default function (pi: ExtensionAPI) {
 								: undefined;
 				if (!level) {
 					ctx.ui.notify(
-						"Usage: /prompt-translate boost off|on|plus|mega — on = faithful clarity edit, plus = imperative + light structure (strict), mega = full restructure into ordered tasks",
-						"warning",
+						`prompt-translate boost: ${formatChoice(["off", "on", "plus", "mega"], config.boost)}\nPoužití: /prompt-translate boost off|on|plus|mega — on = faithful clarity edit, plus = imperative + light structure (strict), mega = full restructure into ordered tasks`,
+						"info",
 					);
 					return;
 				}
@@ -757,14 +790,14 @@ export default function (pi: ExtensionAPI) {
 				const value = (rest[0] ?? "").toLowerCase();
 				if (value === "inspect" || value === "show" || value === "preview") {
 					const context = extractRecentContext(ctx);
-					if (!context) {
+					if (context) {
 						ctx.ui.notify(
-							`prompt-translate history (mód: ${config.historyMode}): Žádný kontext předchozí konverzace k odeslání (prázdná historie).`,
+							`prompt-translate history (mód: ${formatChoice(["off", "ask", "auto", "always"], config.historyMode)}) — extrahovaný kontext:\n\n${context}`,
 							"info",
 						);
 					} else {
 						ctx.ui.notify(
-							`prompt-translate history (mód: ${config.historyMode}) — extrahovaný kontext:\n\n${context}`,
+							`prompt-translate history (mód: ${formatChoice(["off", "ask", "auto", "always"], config.historyMode)}): Žádný kontext předchozí konverzace k odeslání (prázdná historie).`,
 							"info",
 						);
 					}
@@ -782,7 +815,7 @@ export default function (pi: ExtensionAPI) {
 									: undefined;
 				if (!mode) {
 					ctx.ui.notify(
-						`prompt-translate history: aktuálně ${config.historyMode}. Použití: /prompt-translate history off|ask|auto|always|inspect — ask = dotázat se před každým překladem, auto = automaticky při detekci zájmen, always = vždy, inspect = zobrazit aktuální kontext, off = bez historie`,
+						`prompt-translate history: ${formatChoice(["off", "ask", "auto", "always"], config.historyMode)} | \x1b[2minspect\x1b[0m\nPoužití: /prompt-translate history off|ask|auto|always|inspect — ask = dotázat se před každým překladem, auto = automaticky při detekci zájmen, always = vždy, inspect = zobrazit aktuální kontext, off = bez historie`,
 						"info",
 					);
 					return;
@@ -806,7 +839,10 @@ export default function (pi: ExtensionAPI) {
 			if (subcommand === "confirm") {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
-					ctx.ui.notify("Usage: /prompt-translate confirm on|off", "warning");
+					ctx.ui.notify(
+						`prompt-translate confirm: ${formatChoice(["on", "off"], config.confirm)}\nPoužití: /prompt-translate confirm on|off`,
+						"info",
+					);
 					return;
 				}
 				config.confirm = value === "on";
@@ -825,7 +861,10 @@ export default function (pi: ExtensionAPI) {
 			if (subcommand === "diff") {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
-					ctx.ui.notify("Usage: /prompt-translate diff on|off", "warning");
+					ctx.ui.notify(
+						`prompt-translate diff: ${formatChoice(["on", "off"], config.diff)}\nPoužití: /prompt-translate diff on|off`,
+						"info",
+					);
 					return;
 				}
 				config.diff = value === "on";
@@ -837,8 +876,8 @@ export default function (pi: ExtensionAPI) {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
 					ctx.ui.notify(
-						"Usage: /prompt-translate detect on|off — skips translation if prompt is already English or code",
-						"warning",
+						`prompt-translate detect: ${formatChoice(["on", "off"], config.autodetect)}\nPoužití: /prompt-translate detect on|off — přeskočí překlad, pokud je prompt již v angličtině nebo jde o kód`,
+						"info",
 					);
 					return;
 				}
@@ -853,7 +892,10 @@ export default function (pi: ExtensionAPI) {
 			if (["original", "showoriginal", "source"].includes(subcommand)) {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
-					ctx.ui.notify("Usage: /prompt-translate original on|off", "warning");
+					ctx.ui.notify(
+						`prompt-translate original: ${formatChoice(["on", "off"], config.showOriginal)}\nPoužití: /prompt-translate original on|off`,
+						"info",
+					);
 					return;
 				}
 				config.showOriginal = value === "on";
@@ -890,7 +932,10 @@ export default function (pi: ExtensionAPI) {
 			if (subcommand === "debug") {
 				const value = rest[0];
 				if (value !== "on" && value !== "off") {
-					ctx.ui.notify("Usage: /prompt-translate debug on|off", "warning");
+					ctx.ui.notify(
+						`prompt-translate debug: ${formatChoice(["on", "off"], config.debug)}\nPoužití: /prompt-translate debug on|off`,
+						"info",
+					);
 					return;
 				}
 				config.debug = value === "on";
@@ -1047,15 +1092,22 @@ export default function (pi: ExtensionAPI) {
 
 			if (state.config.confirm && ctx.hasUI) {
 				const promptPreview =
-					event.text.length > 300 ? `${event.text.slice(0, 300)}…` : event.text;
+					event.text.length > 500 ? `${event.text.slice(0, 500)}…` : event.text;
 				const transPreview =
-					englishText.length > 300 ? `${englishText.slice(0, 300)}…` : englishText;
-				const histInfo = conversationContext
-					? `\n\n[Připojená historie konverzace]:\n${conversationContext}`
-					: "";
+					englishText.length > 500 ? `${englishText.slice(0, 500)}…` : englishText;
+				const confirmationBody = formatConfirmationBody({
+					source: promptPreview,
+					english: transPreview,
+					boost: state.config.boost,
+					conversationContext,
+					usage: translated.usage,
+					costUsd: translated.costUsd,
+					costCzk: translated.costCzk,
+					styleSource: styleAtWords,
+				});
 				const confirmed = await ctx.ui.confirm(
 					"Potvrdit překlad promptu",
-					`Původní:\n${promptPreview}\n\nPřeloženo (EN):\n${transPreview}${histInfo}\n\nOdeslat tento překlad agentovi? (Ne = odeslat původní text bez překladu)`,
+					confirmationBody,
 				);
 				if (!confirmed) {
 					ctx.ui.notify(

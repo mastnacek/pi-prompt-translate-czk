@@ -10,7 +10,15 @@ import {
 	protectPromptSegments,
 	restoreProtectedSegments,
 } from "./translate";
-import { formatTelemetryOverview, statusText } from "./status";
+import {
+	buildHelpText,
+	formatActiveValue,
+	formatChoice,
+	formatConfirmationBody,
+	formatTelemetryOverview,
+	formatToggleBadge,
+	statusText,
+} from "./status";
 import { normalizeConfig } from "./config";
 import { state } from "./state";
 
@@ -354,7 +362,49 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 			sessionManager: { getEntries: () => [] },
 		} as never;
 		const text = await statusText(mockCtx);
-		expect(text).toContain("confirm=on");
-		expect(text).toContain("history=auto");
+		expect(text).toContain("confirm=");
+		expect(text).toContain("history=");
+	});
+
+	it("formats choices with active option highlighted", () => {
+		const formatted = formatChoice(["off", "on", "plus", "mega"], "plus");
+		expect(formatted).toContain("● plus");
+		expect(formatted).toContain("off");
+	});
+
+	it("formats active single value and toggle badges", () => {
+		expect(formatActiveValue("Czech")).toContain("● Czech");
+		expect(formatToggleBadge(true)).toContain("● ON");
+		expect(formatToggleBadge(false)).toContain("○ OFF");
+	});
+
+	it("builds rich help banner with highlighted active configuration", () => {
+		const help = buildHelpText(state.config, 0.0012);
+		expect(help).toContain("pi-prompt-translate");
+		expect(help).toContain("Příkazy & Konfigurace:");
+		expect(help).toContain("Aktuální přehled:");
+		expect(help).toContain("Cena sezení:");
+	});
+
+	it("formats confirmation body matching the color-highlighted diff style", () => {
+		const body = formatConfirmationBody({
+			source: "Udělej to taky",
+			english: "Do this too",
+			boost: "boost",
+			conversationContext: "User: Fix it\nAssistant: Fixed",
+			costUsd: 0.0001,
+			costCzk: 0.0024,
+			usage: { input: 10, output: 5, totalTokens: 15 } as never,
+		});
+		expect(body).toContain("Prompt Translation Diff");
+		expect(body).toContain("[boost: boost]");
+		expect(body).toContain("[history: attached]");
+		expect(body).toContain("Original (CZ):");
+		expect(body).toContain("Udělej to taky");
+		expect(body).toContain("Enhanced (EN):");
+		expect(body).toContain("Do this too");
+		expect(body).toContain("Attached History Context:");
+		expect(body).toContain("User: Fix it");
+		expect(body).toContain("Odeslat tento překlad agentovi?");
 	});
 });

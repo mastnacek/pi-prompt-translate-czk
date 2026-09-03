@@ -10,7 +10,8 @@ import {
 	protectPromptSegments,
 	restoreProtectedSegments,
 } from "./translate";
-import { formatTelemetryOverview } from "./status";
+import { formatTelemetryOverview, statusText } from "./status";
+import { normalizeConfig } from "./config";
 import { state } from "./state";
 
 describe("protectPromptSegments & restoreProtectedSegments", () => {
@@ -152,9 +153,7 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 			"Here is the result. Documentation: https://docs.example.com/guide. <action>Do not touch</action>";
 		const protectedResult = protectFinalAnswerSegments(answer);
 
-		expect(protectedResult.text).not.toContain(
-			"https://docs.example.com/guide",
-		);
+		expect(protectedResult.text).not.toContain("https://docs.example.com/guide");
 		expect(protectedResult.text).not.toContain("<action>Do not touch</action>");
 
 		const translated = protectedResult.text.replace(
@@ -208,9 +207,9 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 	});
 
 	it("cleans translation output from echoed XML wrapper tags", () => {
-		expect(
-			cleanTranslationOutput("<source_text>Hello world</source_text>"),
-		).toBe("Hello world");
+		expect(cleanTranslationOutput("<source_text>Hello world</source_text>")).toBe(
+			"Hello world",
+		);
 		expect(
 			cleanTranslationOutput("<translation>\nHello world\n</translation>"),
 		).toBe("Hello world");
@@ -319,9 +318,7 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 						type: "message",
 						message: {
 							role: "assistant",
-							content: [
-								{ type: "text", text: "Zkontrolováno, spojení je opravené." },
-							],
+							content: [{ type: "text", text: "Zkontrolováno, spojení je opravené." }],
 						},
 					},
 					{
@@ -333,16 +330,31 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 
 		const extracted = extractRecentContext(mockContext);
 		expect(extracted).toContain("User: Můžeš zkontrolovat db.ts?");
-		expect(extracted).toContain(
-			"Assistant: Zkontrolováno, spojení je opravené.",
-		);
+		expect(extracted).toContain("Assistant: Zkontrolováno, spojení je opravené.");
 	});
 
 	it("cleans echoed conversation_context from model output", () => {
 		const echoed =
 			"<conversation_context>User: foo\nAssistant: bar</conversation_context>\nRefactor the second function.";
-		expect(cleanTranslationOutput(echoed)).toBe(
-			"Refactor the second function.",
-		);
+		expect(cleanTranslationOutput(echoed)).toBe("Refactor the second function.");
+	});
+
+	it("normalizes confirm option in config", () => {
+		expect(normalizeConfig({}).confirm).toBe(false);
+		expect(normalizeConfig({ confirm: true }).confirm).toBe(true);
+		expect(normalizeConfig({ confirm: false }).confirm).toBe(false);
+	});
+
+	it("includes confirm and history in statusText output", async () => {
+		state.config.confirm = true;
+		state.config.historyMode = "auto";
+		const mockCtx = {
+			signal: undefined,
+			hasUI: false,
+			sessionManager: { getEntries: () => [] },
+		} as never;
+		const text = await statusText(mockCtx);
+		expect(text).toContain("confirm=on");
+		expect(text).toContain("history=auto");
 	});
 });

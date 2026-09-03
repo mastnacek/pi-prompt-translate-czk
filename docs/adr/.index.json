@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-09-03T05:55:14.463Z",
+  "records": [
+    {
+      "id": "ADR-001",
+      "title": "// Resolve the translate model; when a temporary override is broken (n",
+      "date": "2026-09-03 07:45:38",
+      "file": "2026-09-03-ADR-001-resolve-the-translate-model-when-a-temporary-overr.md",
+      "constraint": "// Resolve the translate model; when a temporary override is broken (n: Output ONLY the translation.,\r \t\t\t\t\t\"Do not wrap your output in <source_text> tags, and do not add commentary.\",\r \t\t\t\t\t\"Keep code, paths, commands, flags, markdown, URLs, JSON, placeholders, XML-like",
+      "status": "active"
+    },
+    {
+      "id": "ADR-002",
+      "title": "override clears itself on first use after expiry. The footer shows",
+      "date": "2026-09-03 07:53:09",
+      "file": "2026-09-03-ADR-002-override-clears-itself-on-first-use-after-expiry-t.md",
+      "constraint": "override clears itself on first use after expiry. The footer shows: Commands\r \r \r /prompt-translate status                     Show full configuration and resolved model\r /prompt-translate stats                      Show telemetry, cache hit rate, and financial saving",
+      "status": "active"
+    },
+    {
+      "id": "ADR-003",
+      "title": "Architectural Workaround & Constraint",
+      "date": "2026-09-03 07:55:14",
+      "file": "2026-09-03-ADR-003-architectural-workaround-constraint.md",
+      "constraint": "Architectural Workaround & Constraint: Changes not staged for commit:   (use \"git add <file>...\" to update what will be committed)   (use \"git restore <file>...\" to discard changes in working directory) \tmodified:   README.md \tmodified:",
+      "status": "active"
+    }
+  ]
+}

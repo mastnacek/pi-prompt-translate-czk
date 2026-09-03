@@ -166,6 +166,7 @@ export function normalizeConfig(
 				: (value.historyMode as unknown) === true
 					? "ask"
 					: DEFAULT_CONFIG.historyMode,
+		confirm: value.confirm ?? DEFAULT_CONFIG.confirm,
 		showOriginal: value.showOriginal ?? DEFAULT_CONFIG.showOriginal,
 		diff: value.diff ?? DEFAULT_CONFIG.diff,
 		autodetect: value.autodetect ?? DEFAULT_CONFIG.autodetect,

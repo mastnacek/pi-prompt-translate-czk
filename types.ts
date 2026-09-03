@@ -49,6 +49,8 @@ export type TranslateConfig = {
 	boost: BoostLevel;
 	/** Conversation history injection mode. */
 	historyMode: HistoryMode;
+	/** When on, prompts for confirmation with the translated text before sending it to the agent. */
+	confirm: boolean;
 	/** When on, the original (untranslated) prompt is rendered above the translated
 	 *  user message in a box with a distinct background color. */
 	showOriginal: boolean;
@@ -133,6 +135,7 @@ export const DEFAULT_CONFIG: TranslateConfig = {
 	translateReasoning: true,
 	boost: "off",
 	historyMode: "off",
+	confirm: false,
 	showOriginal: true,
 	diff: true,
 	autodetect: true,

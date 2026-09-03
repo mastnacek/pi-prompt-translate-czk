@@ -58,7 +58,8 @@ Example (Czech input):
 /prompt-translate lang <language>            Target language for replies (default Czech)
 /prompt-translate model <m> [until DATE]     Set translate model; optional auto-expiry
 /prompt-translate boost off|on|plus|mega    Prompt enhancement level (see table above)
-/prompt-translate history off|ask|auto|always Conversation context injection mode
+/prompt-translate confirm on|off             Require confirmation dialog before sending translated prompt
+/prompt-translate history off|ask|auto|always|inspect Conversation context injection mode / inspection
 /prompt-translate diff on|off                Show side-by-side prompt diff with token count and cost
 /prompt-translate detect on|off              Auto-skip translation if prompt is already English or code
 /prompt-translate think on|off               Use reasoning on the translate model (low effort, capped)
@@ -72,6 +73,7 @@ Example (Czech input):
 ### OpenRouter Routing & Cache Optimization
 
 When using an OpenRouter model (e.g. `openrouter/google/gemini-3.5-flash-lite`), the extension automatically applies transport-layer optimizations without altering translation text or semantics:
+
 - **Provider Sticky Routing (`x-session-id`):** Pins all translation turns in a session to the same backend provider endpoint (10-min sliding window), keeping the provider's prompt cache warm and unlocking 50–90% cost discounts on repeated system prompt prefix tokens.
 - **Attribution Headers:** Sends `HTTP-Referer` and `X-Title: Pi Prompt Translate` to isolate translation metrics and analytics in your OpenRouter dashboard.
 - **Savings & Telemetry Accounting:** Automatically tracks cumulative cached tokens, cache write tokens, hit rates, and estimated dollar / CZK savings, viewable anytime via `/prompt-translate stats`.
@@ -81,12 +83,14 @@ When using an OpenRouter model (e.g. `openrouter/google/gemini-3.5-flash-lite`),
 When following up on previous assistant responses (e.g. *"udělej to taky pro druhou funkci"*, *"proč to nefunguje?"*), natural language contains pronouns and deictic references that pure stateless translation cannot resolve.
 
 Configure with `/prompt-translate history <mode>`:
+
 - **`off` (default):** Pure stateless translation (minimum token usage).
 - **`ask` (or `on`):** Prompts you interactively via TUI before each translation asking whether to include recent conversation context.
 - **`auto`:** Automatically includes recent context when deictic references (e.g. *to*, *tento*, *druhou*, *stejně*, *předchozí*) are detected in the prompt.
 - **`always`:** Always attaches the last 1–2 turns of context into the translation request.
+- **`inspect` (or `/prompt-translate history inspect`):** Displays currently extracted conversation history without changing settings.
 
-When active, conversation history is fenced in `<conversation_context>` tags. The model uses it strictly for pronoun/reference resolution while translating only `<source_text>`.
+When active, conversation history is fenced in `<conversation_context>` tags. The model uses it strictly for pronoun/reference resolution while translating only `<source_text>`. When attached, history context is visually badged in the TUI diff box (`[history: attached]` and `Attached History Context:` section) and prompt notifications.
 
 ```
 /prompt-translate model openrouter/google/gemini-3.7-flash until 2026-08-26

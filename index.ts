@@ -234,6 +234,7 @@ export default function (pi: ExtensionAPI) {
 		usage?: TranslationUsage;
 		costUsd?: number;
 		costCzk?: number;
+		conversationContext?: string;
 	}>(STATE_ENTRY_TYPE, (entry, _options, theme) => {
 		const source = entry.data?.source;
 		if (typeof source !== "string" || !source.trim()) return undefined;
@@ -245,6 +246,9 @@ export default function (pi: ExtensionAPI) {
 				entry.data?.boost && entry.data.boost !== "off"
 					? ` [boost: ${entry.data.boost}]`
 					: "";
+			const historyBadge = entry.data?.conversationContext
+				? " [history: attached]"
+				: "";
 			const usage = entry.data?.usage;
 			const tokStr =
 				usage?.totalTokens === undefined
@@ -256,25 +260,37 @@ export default function (pi: ExtensionAPI) {
 					: ` · ${formatCost(entry.data.costUsd, entry.data.costCzk)}`;
 
 			const header =
-				theme.fg("accent", `🔄 Prompt Translation Diff${boostBadge}`) +
-				theme.fg("dim", `${tokStr}${costStr}`);
+				theme.fg(
+					"accent",
+					`🔄 Prompt Translation Diff${boostBadge}${historyBadge}`,
+				) + theme.fg("dim", `${tokStr}${costStr}`);
 
 			const originalSection = `${theme.fg("customMessageLabel", "Original (CZ):")}\n${theme.fg("customMessageText", styleAtWords(source))}`;
 			const englishSection =
 				entry.data?.english && entry.data.english.trim() !== source.trim()
 					? `\n\n${theme.fg("customMessageLabel", "Enhanced (EN):")}\n${theme.fg("customMessageText", entry.data.english)}`
 					: "";
+			const historySection = entry.data?.conversationContext
+				? `\n\n${theme.fg("customMessageLabel", "Attached History Context:")}\n${theme.fg("dim", entry.data.conversationContext)}`
+				: "";
 
-			box.addChild(new Text(`${header}\n\n${originalSection}${englishSection}`));
+			box.addChild(
+				new Text(
+					`${header}\n\n${originalSection}${englishSection}${historySection}`,
+				),
+			);
 			return box;
 		}
 
 		// If diff mode is off, but showOriginal is on:
 		if (!state.config.showOriginal) return undefined;
 		const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
+		const historyBadge = entry.data?.conversationContext
+			? ` ${theme.fg("dim", "[with history]")}`
+			: "";
 		box.addChild(
 			new Text(
-				`${theme.fg("customMessageLabel", "original:")}\n${theme.fg("customMessageText", styleAtWords(source))}`,
+				`${theme.fg("customMessageLabel", "original:")}${historyBadge}\n${theme.fg("customMessageText", styleAtWords(source))}`,
 			),
 		);
 		return box;
@@ -309,7 +325,8 @@ export default function (pi: ExtensionAPI) {
 		detect:
 			"automatická detekce angličtiny a kódu pro přeskočení překladu (on/off)",
 		history:
-			"režim vkládání historie konverzace (off | ask | auto | always)",
+			"režim vkládání historie konverzace (off | ask | auto | always | inspect)",
+		confirm: "potvrzení přeloženého promptu před odesláním agentovi (on/off)",
 		balance: "zůstatek OpenRouter kreditu a kurz CZK (balance refresh)",
 		stats: "přehled telemetrie, úspor prompt cachingu a OpenRouter routingu",
 		telemetry: "alias pro stats",
@@ -339,6 +356,7 @@ export default function (pi: ExtensionAPI) {
 						"response",
 						"think",
 						"thinking",
+						"confirm",
 						"original",
 						"diff",
 						"detect",
@@ -406,6 +424,11 @@ export default function (pi: ExtensionAPI) {
 							value: "history always",
 							label: "history always",
 							description: "vždy připojit nedávnou historii",
+						},
+						{
+							value: "history inspect",
+							label: "history inspect",
+							description: "zobrazit aktuálně extrahovaný kontext historie",
 						},
 					];
 					const filtered = items.filter((i) =>
@@ -535,8 +558,9 @@ export default function (pi: ExtensionAPI) {
 					"/prompt-translate boost off|on|plus|mega — úroveň vylepšení promptu",
 					"/prompt-translate model <model>     — model pro překlad (current|default|<prov>/<mod>)",
 					"/prompt-translate think on|off      — uvažování (reasoning) překladového modelu",
+					"/prompt-translate confirm on|off    — vyžadovat potvrzení přeloženého promptu před odesláním",
 					"/prompt-translate original on|off   — zobrazení původního českého promptu",
-					"/prompt-translate history [mode]    — historie konverzace (off|ask|auto|always)",
+					"/prompt-translate history [mode]    — historie konverzace (off|ask|auto|always|inspect)",
 					"/prompt-translate balance [refresh] — zůstatek na OpenRouter a kurz ČNB",
 					"/prompt-translate stats            — přehled telemetrie, úspor a OpenRouter routingu",
 					"/prompt-translate global show|off   — trvalá globální konfigurace pro všechna sezení",
@@ -731,6 +755,21 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (subcommand === "history") {
 				const value = (rest[0] ?? "").toLowerCase();
+				if (value === "inspect" || value === "show" || value === "preview") {
+					const context = extractRecentContext(ctx);
+					if (!context) {
+						ctx.ui.notify(
+							`prompt-translate history (mód: ${config.historyMode}): Žádný kontext předchozí konverzace k odeslání (prázdná historie).`,
+							"info",
+						);
+					} else {
+						ctx.ui.notify(
+							`prompt-translate history (mód: ${config.historyMode}) — extrahovaný kontext:\n\n${context}`,
+							"info",
+						);
+					}
+					return;
+				}
 				const mode =
 					value === "on" || value === "ask"
 						? "ask"
@@ -743,7 +782,7 @@ export default function (pi: ExtensionAPI) {
 									: undefined;
 				if (!mode) {
 					ctx.ui.notify(
-						`prompt-translate history: aktuálně ${config.historyMode}. Použití: /prompt-translate history off|ask|auto|always|on — ask = dotázat se před každým překladem, auto = automaticky při detekci zájmen, always = vždy, off = bez historie`,
+						`prompt-translate history: aktuálně ${config.historyMode}. Použití: /prompt-translate history off|ask|auto|always|inspect — ask = dotázat se před každým překladem, auto = automaticky při detekci zájmen, always = vždy, inspect = zobrazit aktuální kontext, off = bez historie`,
 						"info",
 					);
 					return;
@@ -759,6 +798,25 @@ export default function (pi: ExtensionAPI) {
 								: mode === "always"
 									? " (nedávná historie konverzace se připojuje vždy)"
 									: " (překlad bez historie konverzace)"
+					}`,
+					"info",
+				);
+				return;
+			}
+			if (subcommand === "confirm") {
+				const value = rest[0];
+				if (value !== "on" && value !== "off") {
+					ctx.ui.notify("Usage: /prompt-translate confirm on|off", "warning");
+					return;
+				}
+				config.confirm = value === "on";
+				persist();
+				updateTranslateStatus(ctx);
+				ctx.ui.notify(
+					`prompt-translate translation confirmation ${value}${
+						value === "on"
+							? " (přeložené prompty vyžadují potvrzení před odesláním)"
+							: ""
 					}`,
 					"info",
 				);
@@ -850,7 +908,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (subcommand === "help") {
 				ctx.ui.notify(
-					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|plus|mega|diff on|off|detect on|off|original on|off|balance [refresh]|debug on|off|global [show|off]|reset — add --global to any subcommand to persist for all sessions",
+					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|plus|mega|confirm on|off|diff on|off|detect on|off|original on|off|history [mode|inspect]|balance [refresh]|debug on|off|global [show|off]|reset — add --global to any subcommand to persist for all sessions",
 					"info",
 				);
 				return;
@@ -955,12 +1013,16 @@ export default function (pi: ExtensionAPI) {
 				);
 				if (sendHistory) {
 					conversationContext = candidate;
-					debug(
-						ctx,
-						"user confirmed attaching conversation context to translator",
-					);
+					debug(ctx, "user confirmed attaching conversation context to translator");
 				}
 			}
+		}
+
+		if (conversationContext) {
+			debug(
+				ctx,
+				`attached conversation context to translator:\n${conversationContext}`,
+			);
 		}
 
 		try {
@@ -971,9 +1033,10 @@ export default function (pi: ExtensionAPI) {
 				"prompt",
 				conversationContext,
 			);
+			const histBadge = conversationContext ? " [with history]" : "";
 			if (ctx.hasUI)
 				ctx.ui.notify(
-					`prompt-translate: prompt → EN ${formatCost(translated.costUsd, translated.costCzk)}`,
+					`prompt-translate: prompt → EN${histBadge} ${formatCost(translated.costUsd, translated.costCzk)}`,
 					"info",
 				);
 			state.pending = {
@@ -981,6 +1044,28 @@ export default function (pi: ExtensionAPI) {
 				translateResponses: state.config.translateResponses,
 			};
 			const englishText = rebuild ? rebuild(translated.text) : translated.text;
+
+			if (state.config.confirm && ctx.hasUI) {
+				const promptPreview =
+					event.text.length > 300 ? `${event.text.slice(0, 300)}…` : event.text;
+				const transPreview =
+					englishText.length > 300 ? `${englishText.slice(0, 300)}…` : englishText;
+				const histInfo = conversationContext
+					? `\n\n[Připojená historie konverzace]:\n${conversationContext}`
+					: "";
+				const confirmed = await ctx.ui.confirm(
+					"Potvrdit překlad promptu",
+					`Původní:\n${promptPreview}\n\nPřeloženo (EN):\n${transPreview}${histInfo}\n\nOdeslat tento překlad agentovi? (Ne = odeslat původní text bez překladu)`,
+				);
+				if (!confirmed) {
+					ctx.ui.notify(
+						"Překlad zamítnut; odesílám původní text bez překladu",
+						"warning",
+					);
+					return { action: "continue" };
+				}
+			}
+
 			pi.appendEntry(STATE_ENTRY_TYPE, {
 				at: new Date().toISOString(),
 				source: event.text,
@@ -991,6 +1076,7 @@ export default function (pi: ExtensionAPI) {
 				usage: translated.usage,
 				costUsd: translated.costUsd,
 				costCzk: translated.costCzk,
+				conversationContext,
 			});
 			return {
 				action: "transform",

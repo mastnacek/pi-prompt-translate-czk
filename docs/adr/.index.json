@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-09-03T05:55:14.463Z",
+  "lastUpdated": "2026-09-03T07:31:15.176Z",
   "records": [
     {
       "id": "ADR-001",
@@ -24,6 +24,22 @@
       "date": "2026-09-03 07:55:14",
       "file": "2026-09-03-ADR-003-architectural-workaround-constraint.md",
       "constraint": "Architectural Workaround & Constraint: Changes not staged for commit:   (use \"git add <file>...\" to update what will be committed)   (use \"git restore <file>...\" to discard changes in working directory) \tmodified:   README.md \tmodified:",
+      "status": "active"
+    },
+    {
+      "id": "ADR-004",
+      "title": "\"User: Refactor db.ts\\nAssistant: Done.\",",
+      "date": "2026-09-03 09:07:15",
+      "file": "2026-09-03-ADR-004-user-refactor-dbtsnassistant-done.md",
+      "constraint": "\"User: Refactor db.ts\\nAssistant: Done.\",: \"User: Refactor db.ts\\nAssistant: Done.\",",
+      "status": "active"
+    },
+    {
+      "id": "ADR-005",
+      "title": "Deterministic embedded filesystem path protection in prompt and response translation",
+      "date": "2026-09-03 09:31:15",
+      "file": "2026-09-03-ADR-005-deterministic-embedded-filesystem-path-protection-.md",
+      "constraint": "Deterministic embedded filesystem path protection in prompt and response translation: Add deterministic segment protection for Windows drive paths, UNC network paths, Unix system/home paths, relative paths, and clipboard temp image patterns in protectPromptSegments and protectFinalAnswerSegments.",
       "status": "active"
     }
   ]

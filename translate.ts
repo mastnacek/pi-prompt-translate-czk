@@ -130,13 +130,39 @@ export function protectPromptSegments(
 		(match) => addSegment(match),
 	);
 
-	// 7. Protect ? symbol queries (?myFunc, ?varName from pi-at-words)
+	// 7. Protect Windows absolute paths (e.g. C:\foo\bar, D:/foo/bar) and UNC paths (\\server\share\...)
+	protectedText = protectedText.replace(
+		/\b[A-Za-z]:[\\/](?:[^\s<>"'`{}()[\]]*[^\s<>"'`{}()[\].,;:!?])?/g,
+		(match) => addSegment(match),
+	);
+	protectedText = protectedText.replace(
+		/\\\\[a-zA-Z0-9_.-]+\\[^\s<>"'`{}()[\]]*[^\s<>"'`{}()[\].,;:!?]/g,
+		(match) => addSegment(match),
+	);
+
+	// 8. Protect Unix absolute paths, home paths, and relative paths (e.g. /tmp/..., ~/..., ./..., ../...)
+	protectedText = protectedText.replace(
+		/(?<=^|[\s<>"'`{}()[\]])(?:~|\/tmp|\/var|\/home|\/etc|\/usr|\/opt|\/srv|\/root|\/mnt|\/Volumes|\/Users)\/[^\s<>"'`{}()[\]]*[^\s<>"'`{}()[\].,;:!?]/g,
+		(match) => addSegment(match),
+	);
+	protectedText = protectedText.replace(
+		/(?<=^|[\s<>"'`{}()[\]])(?:\.{1,2}[\\/])[^\s<>"'`{}()[\]]*[^\s<>"'`{}()[\].,;:!?]/g,
+		(match) => addSegment(match),
+	);
+
+	// 9. Protect clipboard image filenames if pasted bare (pi-clipboard-*.png)
+	protectedText = protectedText.replace(
+		/(?<=^|[\s<>"'`{}()[\]])pi-clipboard-[a-zA-Z0-9-]+\.[a-zA-Z0-9]+(?=[.,;:!?]*(?:\s|[<>"'`{}()[\]]|$))/g,
+		(match) => addSegment(match),
+	);
+
+	// 10. Protect ? symbol queries (?myFunc, ?varName from pi-at-words)
 	protectedText = protectedText.replace(
 		/(?<=[ \t([{]|^)\?[A-Za-z0-9_]{2,}/g,
 		(match) => addSegment(match),
 	);
 
-	// 7. Protect confirmed ?words / symbols from @-mentioned files
+	// 11. Protect confirmed ?words / symbols from @-mentioned files
 	if (knownWords && knownWords.length > 0) {
 		const alts = [...knownWords]
 			.filter(
@@ -177,6 +203,32 @@ export function protectFinalAnswerSegments(text: string): ProtectedText {
 	// Protect web URLs, git URLs, and file URLs
 	protectedText = protectedText.replace(
 		/(?:https?|git\+https?|ftp|file):\/\/[^\s<>)"]+?(?=[.,;:!?]*(?:\s|[<>)"]|$))/g,
+		(match) => addSegment(match),
+	);
+
+	// Protect Windows absolute paths (e.g. C:\foo\bar, D:/foo/bar) and UNC paths
+	protectedText = protectedText.replace(
+		/\b[A-Za-z]:[\\/](?:[^\s<>"'`{}()[\]]*[^\s<>"'`{}()[\].,;:!?])?/g,
+		(match) => addSegment(match),
+	);
+	protectedText = protectedText.replace(
+		/\\\\[a-zA-Z0-9_.-]+\\[^\s<>"'`{}()[\]]*[^\s<>"'`{}()[\].,;:!?]/g,
+		(match) => addSegment(match),
+	);
+
+	// Protect Unix absolute paths, home paths, and relative paths
+	protectedText = protectedText.replace(
+		/(?<=^|[\s<>"'`{}()[\]])(?:~|\/tmp|\/var|\/home|\/etc|\/usr|\/opt|\/srv|\/root|\/mnt|\/Volumes|\/Users)\/[^\s<>"'`{}()[\]]*[^\s<>"'`{}()[\].,;:!?]/g,
+		(match) => addSegment(match),
+	);
+	protectedText = protectedText.replace(
+		/(?<=^|[\s<>"'`{}()[\]])(?:\.{1,2}[\\/])[^\s<>"'`{}()[\]]*[^\s<>"'`{}()[\].,;:!?]/g,
+		(match) => addSegment(match),
+	);
+
+	// Protect clipboard image filenames if present
+	protectedText = protectedText.replace(
+		/(?<=^|[\s<>"'`{}()[\]])pi-clipboard-[a-zA-Z0-9-]+\.[a-zA-Z0-9]+(?=[.,;:!?]*(?:\s|[<>"'`{}()[\]]|$))/g,
 		(match) => addSegment(match),
 	);
 

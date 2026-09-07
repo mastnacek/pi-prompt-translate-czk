@@ -1052,11 +1052,14 @@ export default function (pi: ExtensionAPI) {
 		} else if (state.config.historyMode === "ask" && ctx.hasUI) {
 			const candidate = extractRecentContext(ctx);
 			if (candidate) {
-				const sendHistory = await ctx.ui.confirm(
-					"Kontext překladu",
-					"Připojit nedávnou historii konverzace k překladu pro přesnější návaznost?",
+				const choice = await ctx.ui.select(
+					"Kontext překladu: Připojit nedávnou historii konverzace k překladu?",
+					[
+						"Ne (výchozí — bez historie konverzace)",
+						"Ano (připojit nedávnou historii konverzace)",
+					],
 				);
-				if (sendHistory) {
+				if (choice?.startsWith("Ano")) {
 					conversationContext = candidate;
 					debug(ctx, "user confirmed attaching conversation context to translator");
 				}

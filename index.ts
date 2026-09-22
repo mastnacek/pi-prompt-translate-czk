@@ -314,6 +314,16 @@ export default function (pi: ExtensionAPI) {
 		updateTranslateStatus(ctx);
 	});
 
+	// Drop session-scoped state on shutdown so no stale context/map survives a
+	// session replacement (AGENTS.md §5/§6). State is rebuilt on session_start.
+	pi.on("session_shutdown", () => {
+		state.sessionCtx = undefined;
+		state.pending = undefined;
+		state.atWords = [];
+		finalTranslationByDisplayedText = new Map<string, string>();
+		atWordsRe = null;
+	});
+
 	function getCommandDocs(cfg: TranslateConfig): Record<string, string> {
 		const onOff = (v: boolean) => (v ? "[● ON]" : "[○ OFF]");
 		const effectiveModel = getEffectiveTranslateModel();
@@ -398,7 +408,7 @@ export default function (pi: ExtensionAPI) {
 						{
 							value: `${cmd} off`,
 							label: `${cmd} off`,
-							description: `vypnout${!currentVal ? " · ● AKTIVNÍ" : ""}`,
+							description: `vypnout${currentVal ? "" : " · ● AKTIVNÍ"}`,
 						},
 					];
 					const filtered = items.filter((i) =>

@@ -1,7 +1,7 @@
 // config.ts — config normalization/persistence, model resolution, language aliases.
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type {
 	Api,
 	Model,
@@ -186,6 +186,9 @@ export function loadGlobalConfig(): Partial<TranslateConfig> {
 
 export function saveGlobalConfig() {
 	try {
+		// Ensure ~/.pi/agent exists before writing (AGENTS.md §5) — the agent dir
+		// may not exist on a fresh machine.
+		mkdirSync(dirname(GLOBAL_CONFIG_FILE), { recursive: true });
 		writeFileSync(
 			GLOBAL_CONFIG_FILE,
 			JSON.stringify(state.config, null, 2),

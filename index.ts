@@ -203,6 +203,14 @@ export const __test = {
 };
 
 export default function (pi: ExtensionAPI) {
+	/** Unsubscribers from every `pi.on()`; drained on session_shutdown (AGENTS §5). */
+	const unsubscribers: Array<() => void> = [];
+
+	/** Retain a `pi.on()` return value; older engine typings declare it void. */
+	const track = (result: unknown): void => {
+		if (typeof result === "function") unsubscribers.push(result as () => void);
+	};
+
 	state.piApi = pi;
 	installPromptInterceptor();
 
@@ -299,7 +307,7 @@ export default function (pi: ExtensionAPI) {
 		);
 		return box;
 	});
-	pi.on("session_start", (_event, ctx) => {
+	track(pi.on("session_start", (_event, ctx) => {
 		state.sessionCtx = ctx;
 		state.config = extractLatestConfig(ctx);
 		rebuildFinalTranslationMap(ctx);
@@ -312,11 +320,12 @@ export default function (pi: ExtensionAPI) {
 		}
 		refreshBalanceStatus(ctx);
 		updateTranslateStatus(ctx);
-	});
+	}));
 
 	// Drop session-scoped state on shutdown so no stale context/map survives a
 	// session replacement (AGENTS.md §5/§6). State is rebuilt on session_start.
 	pi.on("session_shutdown", () => {
+		while (unsubscribers.length > 0) unsubscribers.pop()?.();
 		state.sessionCtx = undefined;
 		state.pending = undefined;
 		state.atWords = [];
@@ -1024,7 +1033,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.on("input", async (event, ctx) => {
+	track(pi.on("input", async (event, ctx) => {
 		state.sessionCtx = ctx;
 		refreshBalanceStatus(ctx);
 		if (
@@ -1181,9 +1190,9 @@ export default function (pi: ExtensionAPI) {
 			);
 			return { action: "continue" };
 		}
-	});
+	}));
 
-	pi.on("before_agent_start", (event, ctx) => {
+	track(pi.on("before_agent_start", (event, ctx) => {
 		// Refresh the status segment every turn so "current" model stays in sync.
 		updateTranslateStatus(ctx);
 		if (!state.pending) return;
@@ -1199,22 +1208,22 @@ export default function (pi: ExtensionAPI) {
 				state.pending.translateResponses,
 			),
 		};
-	});
+	}));
 
-	pi.on("context", (event) => {
+	track(pi.on("context", (event) => {
 		if (!state.config.enabled || finalTranslationByDisplayedText.size === 0)
 			return;
 		const messages = event.messages.map(replaceDisplayedAssistantTextWithEnglish);
 		if (messages.some((message, index) => message !== event.messages[index]))
 			return { messages };
-	});
+	}));
 
-	pi.on("turn_start", (event) => {
+	track(pi.on("turn_start", (event) => {
 		if (state.pending && state.pending.turnIndex === undefined)
 			state.pending.turnIndex = event.turnIndex;
-	});
+	}));
 
-	pi.on("message_end", async (event, ctx) => {
+	track(pi.on("message_end", async (event, ctx) => {
 		if (!state.pending || event.message.role !== "assistant") return;
 		// goal_complete / goal_blocked / goal_wait end the goal run: pi-goal sends no
 		// further assistant message afterwards, so the text riding alongside that tool
@@ -1269,5 +1278,5 @@ export default function (pi: ExtensionAPI) {
 				"error",
 			);
 		}
-	});
+	}));
 }

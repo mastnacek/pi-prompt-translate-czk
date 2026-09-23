@@ -568,11 +568,38 @@ export default function (pi: ExtensionAPI) {
 			// První slovo — podpříkazy
 			const typed = (tokens[0] ?? "").toLowerCase();
 			const docs = getCommandDocs(state.config);
-			const items = Object.entries(docs).flatMap(([value, description]) =>
-				value.toLowerCase().startsWith(typed)
-					? [{ value, label: value, description }]
-					: [],
-			);
+			const NON_TERMINAL = new Set([
+				"input",
+				"responses",
+				"response",
+				"think",
+				"thinking",
+				"confirm",
+				"original",
+				"diff",
+				"detect",
+				"autodetect",
+				"debug",
+				"boost",
+				"history",
+				"balance",
+				"global",
+				"model",
+				"lang",
+				"language",
+				"target",
+			]);
+			const items: AutocompleteItem[] = [];
+			for (const [key, description] of Object.entries(docs)) {
+				if (key.toLowerCase().startsWith(typed)) {
+					const hasNext = NON_TERMINAL.has(key);
+					items.push({
+						value: hasNext ? `${key} ` : key,
+						label: key,
+						description,
+					});
+				}
+			}
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, ctx) => {

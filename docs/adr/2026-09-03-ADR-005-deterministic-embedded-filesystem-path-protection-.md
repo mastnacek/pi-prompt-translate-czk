@@ -1,4 +1,5 @@
 # ADR-005: Deterministic embedded filesystem path protection in prompt and response translation
+
 - **Date:** 2026-09-03 09:31:15
 - **Status:** active
 - **Context:** When images are inserted from clipboard or file paths are embedded in prompts without backticks or @mentions, translation models could alter backslashes, translate folder names, or drop path references.

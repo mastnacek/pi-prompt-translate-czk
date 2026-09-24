@@ -40,104 +40,8 @@ export {
 	TRANSLATE_REASONING_BUDGET,
 };
 
-export function normalizeLanguage(input: string): string {
-	const value = input.trim().toLowerCase();
-	const aliases: Record<string, string> = {
-		ar: "Arabic",
-		arabic: "Arabic",
-		아랍어: "Arabic",
-		العربية: "Arabic",
-		cn: "Chinese",
-		chinese: "Chinese",
-		zh: "Chinese",
-		zhcn: "Chinese",
-		"zh-cn": "Chinese",
-		중국어: "Chinese",
-		中文: "Chinese",
-		de: "German",
-		deu: "German",
-		german: "German",
-		독일어: "German",
-		deutsch: "German",
-		en: "English",
-		eng: "English",
-		english: "English",
-		영어: "English",
-		es: "Spanish",
-		esp: "Spanish",
-		spanish: "Spanish",
-		스페인어: "Spanish",
-		español: "Spanish",
-		fr: "French",
-		fra: "French",
-		fre: "French",
-		french: "French",
-		프랑스어: "French",
-		français: "French",
-		hi: "Hindi",
-		hin: "Hindi",
-		hindi: "Hindi",
-		힌디어: "Hindi",
-		हिन्दी: "Hindi",
-		id: "Indonesian",
-		ind: "Indonesian",
-		indonesian: "Indonesian",
-		인도네시아어: "Indonesian",
-		"bahasa indonesia": "Indonesian",
-		it: "Italian",
-		ita: "Italian",
-		italian: "Italian",
-		이탈리아어: "Italian",
-		italiano: "Italian",
-		ja: "Japanese",
-		jp: "Japanese",
-		japanese: "Japanese",
-		일본어: "Japanese",
-		日本語: "Japanese",
-		ko: "Korean",
-		kor: "Korean",
-		korean: "Korean",
-		한국어: "Korean",
-		한글: "Korean",
-		nl: "Dutch",
-		dut: "Dutch",
-		nld: "Dutch",
-		dutch: "Dutch",
-		네덜란드어: "Dutch",
-		nederlands: "Dutch",
-		pl: "Polish",
-		pol: "Polish",
-		polish: "Polish",
-		폴란드어: "Polish",
-		polski: "Polish",
-		pt: "Portuguese",
-		por: "Portuguese",
-		portuguese: "Portuguese",
-		포르투갈어: "Portuguese",
-		português: "Portuguese",
-		ru: "Russian",
-		rus: "Russian",
-		russian: "Russian",
-		러시아어: "Russian",
-		русский: "Russian",
-		th: "Thai",
-		tha: "Thai",
-		thai: "Thai",
-		태국어: "Thai",
-		ไทย: "Thai",
-		tr: "Turkish",
-		tur: "Turkish",
-		turkish: "Turkish",
-		터키어: "Turkish",
-		türkçe: "Turkish",
-		vi: "Vietnamese",
-		vie: "Vietnamese",
-		vietnamese: "Vietnamese",
-		베트남어: "Vietnamese",
-		"tiếng việt": "Vietnamese",
-	};
-	return aliases[value] ?? input.trim();
-}
+import { normalizeLanguage } from "./languages.js";
+export { normalizeLanguage };
 
 export function normalizeConfig(
 	value: Partial<TranslateConfig>,
@@ -207,8 +111,52 @@ export function clearGlobalConfig() {
 	}
 }
 
+export function projectConfigPath(cwd: string): string {
+	return join(cwd, ".pi", "pi-prompt-translate.json");
+}
+
+export function loadProjectConfig(cwd: string): Partial<TranslateConfig> {
+	try {
+		const filePath = projectConfigPath(cwd);
+		if (existsSync(filePath)) {
+			return JSON.parse(readFileSync(filePath, "utf8")) as Partial<TranslateConfig>;
+		}
+	} catch {
+		/* ignore */
+	}
+	return {};
+}
+
+export function saveProjectConfig(cwd: string, cfg: Partial<TranslateConfig>) {
+	try {
+		const projDir = join(cwd, ".pi");
+		mkdirSync(projDir, { recursive: true });
+		writeFileSync(
+			join(projDir, "pi-prompt-translate.json"),
+			JSON.stringify(cfg, null, 2),
+			"utf8",
+		);
+	} catch {
+		/* ignore */
+	}
+}
+
+export function saveConfig(
+	cfg: Partial<TranslateConfig>,
+	isGlobal = false,
+	cwd?: string,
+) {
+	if (isGlobal || !cwd) {
+		saveGlobalConfig();
+	} else {
+		saveProjectConfig(cwd, cfg);
+	}
+}
+
 export function extractLatestConfig(ctx: ExtensionContext): TranslateConfig {
-	let latest = normalizeConfig(loadGlobalConfig());
+	const globalCfg = loadGlobalConfig();
+	const projectCfg = ctx.cwd ? loadProjectConfig(ctx.cwd) : {};
+	let latest = normalizeConfig({ ...globalCfg, ...projectCfg });
 	for (const entry of ctx.sessionManager.getEntries()) {
 		if (
 			entry.type === "custom" &&

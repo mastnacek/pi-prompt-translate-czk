@@ -1,212 +1,64 @@
 // index.ts — extension wiring: event handlers, /prompt-translate command,
 // entry renderers. Logic lives in the sibling modules.
-//
-// Module graph (one direction, no cycles):
-//   index → goal/translate/status/balance → config → types/state
 
-import { existsSync } from "node:fs";
-import type { ToolCall } from "@earendil-works/pi-ai";
-import type {
-	ContextEvent,
-	ExtensionAPI,
-	ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { Box, Text, type AutocompleteItem } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 import {
-	clearBalanceCache,
-	getOpenRouterBalance,
-	getUsdToCzkRate,
-} from "./balance";
-import {
-	GLOBAL_CONFIG_FILE,
-	clearGlobalConfig,
 	extractLatestConfig,
-	getAvailableModels,
-	getEffectiveTranslateModel,
-	loadGlobalConfig,
 	normalizeConfig,
 	normalizeLanguage,
 	parseModelSetting,
-	parseUntilDate,
-	persistConfig,
-	resolveConfiguredModel,
-	saveGlobalConfig,
-} from "./config";
-import { extractGoalObjective, installPromptInterceptor } from "./goal";
-import {
-	buildHelpText,
-	formatActiveValue,
-	formatChoice,
-	formatConfirmationBody,
-	formatCost,
-	formatTelemetryOverview,
-	refreshBalanceStatus,
-	statusText,
-	updateTranslateStatus,
-	debug,
-} from "./status";
-import { state } from "./state";
-import {
-	buildEffectiveHeaders,
-	cleanTranslationOutput,
-	createTranslationContext,
-	detectLanguageOrCode,
-	estimateTranslationMaxTokens,
-	extractRecentContext,
-	getText,
-	hasDeicticReferences,
-	hasToolCall,
-	protectFinalAnswerSegments,
-	restoreProtectedSegments,
-	translate,
-	withSingleText,
-} from "./translate";
+} from "./config.js";
 import {
 	CONFIG_ENTRY_TYPE,
 	DEFAULT_CONFIG,
 	FINAL_TRANSLATION_ENTRY_TYPE,
 	STATE_ENTRY_TYPE,
 	type BoostLevel,
-	type FinalTranslationRecord,
 	type TranslateConfig,
 	type TranslationUsage,
-} from "./types";
+} from "./types.js";
 import {
 	ENGLISH_ONLY_AGENT_INSTRUCTION,
 	appendEnglishOnlyInstruction,
 	buildEnglishOnlyInstruction,
-} from "./prompts";
-
-// --- pi-at-words integration ------------------------------------------------
-// Highlight colors owned by pi-at-words: pink = confirmed ?words, green = @mentions.
-// Word set arrives via the shared extension event bus; plugin absent = no-op passthrough.
-const AT_WORDS_PINK = "\x1b[1m\x1b[38;2;255;95;215m";
-const AT_WORDS_PINK_OFF = "\x1b[22m\x1b[39m";
-const AT_WORDS_GREEN = "\x1b[1m\x1b[38;2;0;255;102m";
-const AT_WORDS_GREEN_OFF = "\x1b[22m\x1b[39m";
-// Mention paths (`@src/foo.ts`, `@"quoted path"`) — same source pattern as pi-at-words.
-const AT_WORDS_MENTION_SRC = String.raw`@"[^"\n]+"|@[\w][\w./-]*`;
-let atWordsRe: RegExp | null = null;
-
-function styleAtWords(text: string): string {
-	if (atWordsRe === null) return text;
-	return text.replace(atWordsRe, (m) =>
-		m.startsWith("@")
-			? `${AT_WORDS_GREEN}${m}${AT_WORDS_GREEN_OFF}`
-			: `${AT_WORDS_PINK}${m}${AT_WORDS_PINK_OFF}`,
-	);
-}
-
-// --- final-translation map (displayed → English) ------------------------------
-// Rebuilt on session_start; entries appended as translations happen.
-
-let finalTranslationByDisplayedText = new Map<string, string>();
-
-function rebuildFinalTranslationMap(ctx: ExtensionContext) {
-	const next = new Map<string, string>();
-	for (const entry of ctx.sessionManager.getEntries()) {
-		if (
-			entry.type !== "custom" ||
-			entry.customType !== FINAL_TRANSLATION_ENTRY_TYPE ||
-			!entry.data ||
-			typeof entry.data !== "object"
-		) {
-			continue;
-		}
-		const record = entry.data as Partial<FinalTranslationRecord>;
-		if (
-			typeof record.translated === "string" &&
-			typeof record.english === "string"
-		) {
-			next.set(record.translated, record.english);
-		}
-	}
-	finalTranslationByDisplayedText = next;
-}
-
-function rememberFinalTranslation(
-	pi: ExtensionAPI,
-	record: FinalTranslationRecord,
-) {
-	finalTranslationByDisplayedText.set(record.translated, record.english);
-	pi.appendEntry(FINAL_TRANSLATION_ENTRY_TYPE, record);
-}
-
-function replaceDisplayedAssistantTextWithEnglish(
-	message: ContextEvent["messages"][number],
-): ContextEvent["messages"][number] {
-	if (message.role !== "assistant") return message;
-	let changed = false;
-	const content = message.content.map((part) => {
-		if (part.type !== "text") return part;
-		const english = finalTranslationByDisplayedText.get(part.text.trim());
-		if (!english) return part;
-		changed = true;
-		return { ...part, text: english };
-	});
-	return changed ? { ...message, content } : message;
-}
-
-// Sum translation USD cost already recorded in this session log (survives restarts).
-function sumSessionCostUsd(ctx: ExtensionContext): number {
-	let total = 0;
-	for (const entry of ctx.sessionManager.getEntries()) {
-		if (entry.type !== "custom") continue;
-		if (
-			entry.customType !== STATE_ENTRY_TYPE &&
-			entry.customType !== FINAL_TRANSLATION_ENTRY_TYPE
-		)
-			continue;
-		const usage = (entry.data as { usage?: TranslationUsage } | undefined)?.usage;
-		const cost = usage?.cost?.total;
-		if (typeof cost === "number") total += cost;
-	}
-	return total;
-}
-
-export const __test = {
-	CONFIG_ENTRY_TYPE,
-	FINAL_TRANSLATION_ENTRY_TYPE,
-	STATE_ENTRY_TYPE,
-	DEFAULT_CONFIG,
-	ENGLISH_ONLY_AGENT_INSTRUCTION,
-	appendEnglishOnlyInstruction,
-	buildEffectiveHeaders,
-	buildEnglishOnlyInstruction,
-	cleanTranslationOutput,
-	createTranslationContext,
-	estimateTranslationMaxTokens,
-	extractGoalObjective,
-	extractLatestConfig,
-	extractRecentContext,
-	formatTelemetryOverview,
-	getText,
-	hasDeicticReferences,
-	hasToolCall,
-	normalizeConfig,
-	normalizeLanguage,
-	parseModelSetting,
-	protectFinalAnswerSegments,
+} from "./prompts.js";
+import {
+	AT_WORDS_MENTION_SRC,
 	rebuildFinalTranslationMap,
 	rememberFinalTranslation,
 	replaceDisplayedAssistantTextWithEnglish,
-	resetState() {
-		state.config = { ...DEFAULT_CONFIG };
-		state.pending = undefined;
-		finalTranslationByDisplayedText = new Map<string, string>();
-	},
+	setAtWordsRegex,
+	styleAtWords,
+	sumSessionCostUsd,
+} from "./display.js";
+import { extractGoalObjective, installPromptInterceptor } from "./goal.js";
+import { state } from "./state.js";
+import {
+	formatCost,
+	formatTelemetryOverview,
+	refreshBalanceStatus,
+	updateTranslateStatus,
+} from "./status.js";
+import {
+	buildEffectiveHeaders,
+	cleanTranslationOutput,
+	createTranslationContext,
+	estimateTranslationMaxTokens,
+	extractRecentContext,
+	getText,
+	hasDeicticReferences,
+	hasToolCall,
+	protectFinalAnswerSegments,
 	restoreProtectedSegments,
-	setConfig(next: TranslateConfig) {
-		state.config = { ...next };
-	},
 	withSingleText,
-};
+} from "./translate.js";
+import { registerTranslateCommand } from "./command.js";
+import { registerAgentHooks } from "./agent-hooks.js";
 
 export default function (pi: ExtensionAPI) {
-	/** Unsubscribers from every `pi.on()`; drained on session_shutdown (AGENTS §5). */
 	const unsubscribers: Array<() => void> = [];
 
-	/** Retain a `pi.on()` return value; older engine typings declare it void. */
 	const track = (result: unknown): void => {
 		if (typeof result === "function") unsubscribers.push(result as () => void);
 	};
@@ -214,7 +66,6 @@ export default function (pi: ExtensionAPI) {
 	state.piApi = pi;
 	installPromptInterceptor();
 
-	// Sync confirmed-word set from pi-at-words (live updates; latest wins).
 	pi.events.on("at-words:words-updated", (data: unknown) => {
 		const words = (data as { words?: unknown } | undefined)?.words;
 		if (!Array.isArray(words)) return;
@@ -225,20 +76,17 @@ export default function (pi: ExtensionAPI) {
 		state.atWords = filteredWords;
 		const alts = filteredWords.sort((a, b) => b.length - a.length).join("|");
 		if (!alts) {
-			atWordsRe = null;
+			setAtWordsRegex(null);
 			return;
 		}
-		// Single combined pass: mentions + words never nest/corrupt each other's color spans.
-		atWordsRe = new RegExp(
-			`(?:${AT_WORDS_MENTION_SRC})|(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`,
-			"g",
+		setAtWordsRegex(
+			new RegExp(
+				`(?:${AT_WORDS_MENTION_SRC})|(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`,
+				"g",
+			),
 		);
 	});
 
-	// Render the original (untranslated) prompt or enhanced translation diff above the user message.
-	// STATE entries are appended in the input handler before pi creates the user
-	// message entry, so this box lands directly above the translated text. The
-	// entry is not part of the LLM context — display only.
 	pi.registerEntryRenderer<{
 		source?: string;
 		english?: string;
@@ -251,7 +99,6 @@ export default function (pi: ExtensionAPI) {
 		const source = entry.data?.source;
 		if (typeof source !== "string" || !source.trim()) return undefined;
 
-		// If diff mode is on, render the full diff summary + token usage box
 		if (state.config.diff) {
 			const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
 			const boostBadge =
@@ -294,7 +141,6 @@ export default function (pi: ExtensionAPI) {
 			return box;
 		}
 
-		// If diff mode is off, but showOriginal is on:
 		if (!state.config.showOriginal) return undefined;
 		const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
 		const historyBadge = entry.data?.conversationContext
@@ -307,7 +153,8 @@ export default function (pi: ExtensionAPI) {
 		);
 		return box;
 	});
-	track(pi.on("session_start", (_event, ctx) => {
+
+	track(pi.on("session_start", (_event, ctx: ExtensionContext) => {
 		state.sessionCtx = ctx;
 		state.config = extractLatestConfig(ctx);
 		rebuildFinalTranslationMap(ctx);
@@ -322,961 +169,51 @@ export default function (pi: ExtensionAPI) {
 		updateTranslateStatus(ctx);
 	}));
 
-	// Drop session-scoped state on shutdown so no stale context/map survives a
-	// session replacement (AGENTS.md §5/§6). State is rebuilt on session_start.
 	pi.on("session_shutdown", () => {
 		while (unsubscribers.length > 0) unsubscribers.pop()?.();
 		state.sessionCtx = undefined;
 		state.pending = undefined;
 		state.atWords = [];
-		finalTranslationByDisplayedText = new Map<string, string>();
-		atWordsRe = null;
+		setAtWordsRegex(null);
 	});
 
-	function getCommandDocs(cfg: TranslateConfig): Record<string, string> {
-		const onOff = (v: boolean) => (v ? "[● ON]" : "[○ OFF]");
-		const effectiveModel = getEffectiveTranslateModel();
-		const modelLabel =
-			cfg.temporaryModel && cfg.temporaryModelUntil
-				? `${cfg.temporaryModel} (til ${cfg.temporaryModelUntil})`
-				: effectiveModel.setting;
-
-		return {
-			on: "zapne překlad promptů do angličtiny",
-			off: "vypne překlad promptů",
-			status: "zobrazí podrobný stav překladu a zůstatek",
-			input: `přepínač překladu uživatelských promptů ${onOff(cfg.enabled)}`,
-			responses: `přepínač překladu odpovědí asistenta zpět ${onOff(cfg.translateResponses)}`,
-			lang: `cílový jazyk pro odpovědi [● ${cfg.targetLanguage}]`,
-			model: `model pro překlad [● ${modelLabel}]`,
-			think: `přepínač reasoning/thinking pro překladový model ${onOff(cfg.translateReasoning)}`,
-			boost: `úroveň vylepšení promptu [● ${cfg.boost}]`,
-			confirm: `potvrzení přeloženého promptu před odesláním ${onOff(cfg.confirm)}`,
-			history: `režim vkládání historie konverzace [● ${cfg.historyMode}]`,
-			original: `zobrazení původního promptu nad překladem ${onOff(cfg.showOriginal)}`,
-			diff: `zobrazení porovnání původního a vylepšeného promptu ${onOff(cfg.diff)}`,
-			detect: `automatická detekce angličtiny a kódu ${onOff(cfg.autodetect)}`,
-			balance: "zůstatek OpenRouter kreditu a kurz ČNB (balance refresh)",
-			stats: "přehled telemetrie, úspor prompt cachingu a OpenRouter routingu",
-			telemetry: "alias pro stats",
-			savings: "alias pro stats",
-			debug: `podrobné logování překladu do UI ${onOff(cfg.debug)}`,
-			global: "správa globální konfigurace (show | off)",
-			reset: "resetuje všechna nastavení na výchozí hodnoty",
-			help: "zobrazí podrobnou nápovědu",
-		};
-	}
-
-	pi.registerCommand("prompt-translate", {
-		description:
-			"pi-prompt-translate: překlad promptů do EN a odpovědí zpět, CZK zůstatek, prompt boost",
-		getArgumentCompletions: (prefix: string) => {
-			const tokens = prefix.split(/\s+/).filter(Boolean);
-			const trailingSpace = /\s$/.test(prefix);
-			const normalizedPrefix = tokens.join(" ").toLowerCase();
-
-			// Druhé slovo — kontextové dokončování podle podpříkazu
-			if (tokens.length > 1 || (trailingSpace && tokens.length === 1)) {
-				const cmd = tokens[0].toLowerCase();
-				const cfg = state.config;
-
-				if (
-					[
-						"input",
-						"responses",
-						"response",
-						"think",
-						"thinking",
-						"confirm",
-						"original",
-						"diff",
-						"detect",
-						"autodetect",
-						"debug",
-					].includes(cmd)
-				) {
-					let currentVal = false;
-					if (cmd === "input") currentVal = cfg.enabled;
-					else if (["responses", "response"].includes(cmd))
-						currentVal = cfg.translateResponses;
-					else if (["think", "thinking"].includes(cmd))
-						currentVal = cfg.translateReasoning;
-					else if (cmd === "confirm") currentVal = cfg.confirm;
-					else if (cmd === "original") currentVal = cfg.showOriginal;
-					else if (cmd === "diff") currentVal = cfg.diff;
-					else if (["detect", "autodetect"].includes(cmd))
-						currentVal = cfg.autodetect;
-					else if (cmd === "debug") currentVal = cfg.debug;
-
-					const items = [
-						{
-							value: `${cmd} on`,
-							label: `${cmd} on`,
-							description: `zapnout${currentVal ? " · ● AKTIVNÍ" : ""}`,
-						},
-						{
-							value: `${cmd} off`,
-							label: `${cmd} off`,
-							description: `vypnout${currentVal ? "" : " · ● AKTIVNÍ"}`,
-						},
-					];
-					const filtered = items.filter((i) =>
-						i.value.toLowerCase().startsWith(normalizedPrefix),
-					);
-					return filtered.length > 0 ? filtered : null;
-				}
-
-				if (cmd === "boost") {
-					const currentBoost = cfg.boost;
-					const items = [
-						{
-							value: "boost off",
-							label: "boost off",
-							description: `vypnuto (přímý překlad)${currentBoost === "off" ? " · ● AKTIVNÍ" : ""}`,
-						},
-						{
-							value: "boost on",
-							label: "boost on",
-							description: `jemné vyjasnění (clarity edit)${currentBoost === "boost" ? " · ● AKTIVNÍ" : ""}`,
-						},
-						{
-							value: "boost plus",
-							label: "boost plus",
-							description: `imperativ + lehká struktura${currentBoost === "plus" ? " · ● AKTIVNÍ" : ""}`,
-						},
-						{
-							value: "boost mega",
-							label: "boost mega",
-							description: `plné přeformulování na číslované úkoly${currentBoost === "mega" ? " · ● AKTIVNÍ" : ""}`,
-						},
-					];
-					const filtered = items.filter((i) =>
-						i.value.toLowerCase().startsWith(normalizedPrefix),
-					);
-					return filtered.length > 0 ? filtered : null;
-				}
-
-				if (cmd === "history") {
-					const currentMode = cfg.historyMode;
-					const items = [
-						{
-							value: "history off",
-							label: "history off",
-							description: `vypnuto (bez historie)${currentMode === "off" ? " · ● AKTIVNÍ" : ""}`,
-						},
-						{
-							value: "history ask",
-							label: "history ask",
-							description: `interaktivní dotaz před každým promptem${currentMode === "ask" ? " · ● AKTIVNÍ" : ""}`,
-						},
-						{
-							value: "history auto",
-							label: "history auto",
-							description: `automaticky při detekci zájmen/odkazů${currentMode === "auto" ? " · ● AKTIVNÍ" : ""}`,
-						},
-						{
-							value: "history always",
-							label: "history always",
-							description: `vždy připojit nedávnou historii${currentMode === "always" ? " · ● AKTIVNÍ" : ""}`,
-						},
-						{
-							value: "history inspect",
-							label: "history inspect",
-							description: "zobrazit aktuálně extrahovaný kontext historie",
-						},
-					];
-					const filtered = items.filter((i) =>
-						i.value.toLowerCase().startsWith(normalizedPrefix),
-					);
-					return filtered.length > 0 ? filtered : null;
-				}
-
-				if (cmd === "balance") {
-					const items = [
-						{
-							value: "balance refresh",
-							label: "balance refresh",
-							description: "vynutit načtení kurzu ČNB a kreditu OpenRouter",
-						},
-					];
-					const filtered = items.filter((i) =>
-						i.value.toLowerCase().startsWith(normalizedPrefix),
-					);
-					return filtered.length > 0 ? filtered : null;
-				}
-
-				if (cmd === "global") {
-					const items = [
-						{
-							value: "global show",
-							label: "global show",
-							description: "zobrazit obsah globálního konfiguračního souboru",
-						},
-						{
-							value: "global off",
-							label: "global off",
-							description: "smazat globální konfiguraci (použít výchozí)",
-						},
-					];
-					const filtered = items.filter((i) =>
-						i.value.toLowerCase().startsWith(normalizedPrefix),
-					);
-					return filtered.length > 0 ? filtered : null;
-				}
-
-				if (cmd === "model") {
-					const available = getAvailableModels(state.sessionCtx);
-					const activeModel = cfg.temporaryModel ?? cfg.translateModel;
-					const items: AutocompleteItem[] = available.map((m) => {
-						const isActive =
-							m === activeModel ||
-							(m === "default" && activeModel === DEFAULT_CONFIG.translateModel);
-						let baseDesc = `použít model ${m}`;
-						if (m === "current") {
-							baseDesc = "použít aktuální model konverzace";
-						} else if (m === "default") {
-							baseDesc = "použít výchozí překladový model";
-						}
-						return {
-							value: `model ${m}`,
-							label: `model ${m}`,
-							description: `${baseDesc}${isActive ? " · ● AKTIVNÍ" : ""}`,
-						};
-					});
-					const filtered = items.filter((i) =>
-						i.value.toLowerCase().startsWith(normalizedPrefix),
-					);
-					return filtered.length > 0 ? filtered : null;
-				}
-
-				if (["lang", "language", "target"].includes(cmd)) {
-					const currentLang = cfg.targetLanguage.toLowerCase();
-					const languages = [
-						{ value: "Czech", description: "čeština" },
-						{ value: "English", description: "angličtina" },
-						{ value: "German", description: "němčina" },
-						{ value: "Slovak", description: "slovenština" },
-						{ value: "Polish", description: "polština" },
-						{ value: "French", description: "francouzština" },
-						{ value: "Spanish", description: "španělština" },
-					];
-					const items = languages.map((l) => ({
-						value: `${cmd} ${l.value}`,
-						label: `${cmd} ${l.value}`,
-						description: `${l.description}${l.value.toLowerCase() === currentLang ? " · ● AKTIVNÍ" : ""}`,
-					}));
-					const filtered = items.filter((i) =>
-						i.value.toLowerCase().startsWith(normalizedPrefix),
-					);
-					return filtered.length > 0 ? filtered : null;
-				}
-
-				return null;
-			}
-
-			// První slovo — podpříkazy
-			const typed = (tokens[0] ?? "").toLowerCase();
-			const docs = getCommandDocs(state.config);
-			const NON_TERMINAL = new Set([
-				"input",
-				"responses",
-				"response",
-				"think",
-				"thinking",
-				"confirm",
-				"original",
-				"diff",
-				"detect",
-				"autodetect",
-				"debug",
-				"boost",
-				"history",
-				"balance",
-				"global",
-				"model",
-				"lang",
-				"language",
-				"target",
-			]);
-			const items: AutocompleteItem[] = [];
-			for (const [key, description] of Object.entries(docs)) {
-				if (key.toLowerCase().startsWith(typed)) {
-					const hasNext = NON_TERMINAL.has(key);
-					items.push({
-						value: hasNext ? `${key} ` : key,
-						label: key,
-						description,
-					});
-				}
-			}
-			return items.length > 0 ? items : null;
-		},
-		handler: async (args, ctx) => {
-			const config = state.config;
-			// "--global" can appear anywhere in the args: the change also persists
-			// to the global config file, applying to all future sessions.
-			const tokens = args.trim().split(/\s+/).filter(Boolean);
-			const writeGlobal = tokens.some((t) => t.toLowerCase() === "--global");
-			const cleanTokens = tokens.filter((t) => t.toLowerCase() !== "--global");
-			const subcommand = (cleanTokens[0] ?? "").toLowerCase();
-			const rest = cleanTokens.slice(1);
-			const persist = () => {
-				persistConfig(pi);
-				if (writeGlobal) saveGlobalConfig();
-			};
-			if (subcommand === "status") {
-				ctx.ui.notify(await statusText(ctx), "info");
-				return;
-			}
-			if (
-				subcommand === "stats" ||
-				subcommand === "telemetry" ||
-				subcommand === "savings"
-			) {
-				ctx.ui.notify(await formatTelemetryOverview(ctx), "info");
-				return;
-			}
-			if (!subcommand || subcommand === "help") {
-				ctx.ui.notify(buildHelpText(config, state.sessionCostUsd), "info");
-				return;
-			}
-			if (subcommand === "on" || subcommand === "enable") {
-				config.enabled = true;
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify(
-					`prompt-translate input enabled (target: ${config.targetLanguage})`,
-					"info",
-				);
-				return;
-			}
-			if (subcommand === "off" || subcommand === "disable") {
-				config.enabled = false;
-				state.pending = undefined;
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify("prompt-translate input disabled", "info");
-				return;
-			}
-			if (["input", "prompt", "prompts"].includes(subcommand)) {
-				const value = rest[0];
-				if (value !== "on" && value !== "off") {
-					ctx.ui.notify(
-						`prompt-translate input: ${formatChoice(["on", "off"], config.enabled)}\nPoužití: /prompt-translate input on|off`,
-						"info",
-					);
-					return;
-				}
-				config.enabled = value === "on";
-				if (!config.enabled) state.pending = undefined;
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify(`prompt-translate input ${value}`, "info");
-				return;
-			}
-			if (
-				["response", "responses", "answer", "answers", "reply", "replies"].includes(
-					subcommand,
-				)
-			) {
-				const value = rest[0];
-				if (value !== "on" && value !== "off") {
-					ctx.ui.notify(
-						`prompt-translate responses: ${formatChoice(["on", "off"], config.translateResponses)}\nPoužití: /prompt-translate responses on|off`,
-						"info",
-					);
-					return;
-				}
-				config.translateResponses = value === "on";
-				if (state.pending)
-					state.pending.translateResponses = config.translateResponses;
-				persist();
-				ctx.ui.notify(`prompt-translate responses ${value}`, "info");
-				return;
-			}
-			if (
-				subcommand === "lang" ||
-				subcommand === "language" ||
-				subcommand === "target"
-			) {
-				const language = normalizeLanguage(rest.join(" "));
-				if (!language) {
-					ctx.ui.notify(
-						`prompt-translate target language: ${formatActiveValue(config.targetLanguage)}\nPoužití: /prompt-translate lang <language>`,
-						"info",
-					);
-					return;
-				}
-				config.targetLanguage = language;
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify(
-					`prompt-translate target language set to ${language}`,
-					"info",
-				);
-				return;
-			}
-			if (subcommand === "model") {
-				const untilIndex = rest.findIndex(
-					(token) => token.toLowerCase() === "until",
-				);
-				const modelTokens = untilIndex >= 0 ? rest.slice(0, untilIndex) : rest;
-				const modelSetting = parseModelSetting(modelTokens.join(" "));
-				if (!modelSetting) {
-					ctx.ui.notify(
-						"Usage: /prompt-translate model current|default|<provider>/<model> [until YYYY-MM-DD]",
-						"warning",
-					);
-					return;
-				}
-				if (untilIndex >= 0) {
-					const untilRaw = rest[untilIndex + 1] ?? "";
-					const until = parseUntilDate(untilRaw);
-					if (!until) {
-						ctx.ui.notify(
-							`Invalid "until" date: ${untilRaw || "(missing)"}. Use YYYY-MM-DD.`,
-							"warning",
-						);
-						return;
-					}
-					if (until.getTime() < Date.now()) {
-						ctx.ui.notify(
-							`"until" date ${untilRaw} is in the past; keeping ${config.translateModel}.`,
-							"warning",
-						);
-						return;
-					}
-					config.temporaryModel = modelSetting;
-					config.temporaryModelUntil = untilRaw;
-					persist();
-					updateTranslateStatus(ctx);
-					try {
-						await resolveConfiguredModel(ctx);
-					} catch (error) {
-						ctx.ui.notify(
-							`warning: ${error instanceof Error ? error.message : String(error)} — fix with /prompt-translate model ... or the fallback to ${config.translateModel} fails silently at translation time`,
-							"warning",
-						);
-					}
-					ctx.ui.notify(
-						`prompt-translate using ${modelSetting} until ${untilRaw} (inclusive), then falling back to ${config.translateModel}`,
-						"info",
-					);
-					return;
-				}
-				config.translateModel = modelSetting;
-				config.temporaryModel = undefined;
-				config.temporaryModelUntil = undefined;
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify(
-					`prompt-translate translation model set to ${modelSetting}`,
-					"info",
-				);
-				return;
-			}
-			if (
-				subcommand === "think" ||
-				subcommand === "thinking" ||
-				subcommand === "reason" ||
-				subcommand === "reasoning"
-			) {
-				const value = rest[0];
-				if (value !== "on" && value !== "off") {
-					ctx.ui.notify(
-						`prompt-translate thinking: ${formatChoice(["on", "off"], config.translateReasoning)}\nPoužití: /prompt-translate think on|off`,
-						"info",
-					);
-					return;
-				}
-				config.translateReasoning = value === "on";
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify(
-					`prompt-translate thinking ${value}${value === "on" ? " (uses reasoning when the translate model supports it)" : ""}`,
-					"info",
-				);
-				return;
-			}
-			if (subcommand === "boost") {
-				const value = rest[0];
-				const level: BoostLevel | undefined =
-					value === "on" || value === "boost"
-						? "boost"
-						: value === "off"
-							? "off"
-							: value === "plus" || value === "mega"
-								? value
-								: undefined;
-				if (!level) {
-					ctx.ui.notify(
-						`prompt-translate boost: ${formatChoice(["off", "on", "plus", "mega"], config.boost)}\nPoužití: /prompt-translate boost off|on|plus|mega — on = faithful clarity edit, plus = imperative + light structure (strict), mega = full restructure into ordered tasks`,
-						"info",
-					);
-					return;
-				}
-				config.boost = level;
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify(
-					`prompt-translate boost level: ${level}${
-						level === "mega"
-							? " (full restructure into ordered imperative tasks; strict — no invented steps)"
-							: level === "plus"
-								? " (imperative + light structure, strict fidelity)"
-								: level === "boost"
-									? " (faithful clarity edit, no restructuring)"
-									: ""
-					}`,
-					"info",
-				);
-				return;
-			}
-			if (subcommand === "history") {
-				const value = (rest[0] ?? "").toLowerCase();
-				if (value === "inspect" || value === "show" || value === "preview") {
-					const context = extractRecentContext(ctx);
-					if (context) {
-						ctx.ui.notify(
-							`prompt-translate history (mód: ${formatChoice(["off", "ask", "auto", "always"], config.historyMode)}) — extrahovaný kontext:\n\n${context}`,
-							"info",
-						);
-					} else {
-						ctx.ui.notify(
-							`prompt-translate history (mód: ${formatChoice(["off", "ask", "auto", "always"], config.historyMode)}): Žádný kontext předchozí konverzace k odeslání (prázdná historie).`,
-							"info",
-						);
-					}
-					return;
-				}
-				const mode =
-					value === "on" || value === "ask"
-						? "ask"
-						: value === "off"
-							? "off"
-							: value === "auto"
-								? "auto"
-								: value === "always"
-									? "always"
-									: undefined;
-				if (!mode) {
-					ctx.ui.notify(
-						`prompt-translate history: ${formatChoice(["off", "ask", "auto", "always"], config.historyMode)} | \x1b[2minspect\x1b[0m\nPoužití: /prompt-translate history off|ask|auto|always|inspect — ask = dotázat se před každým překladem, auto = automaticky při detekci zájmen, always = vždy, inspect = zobrazit aktuální kontext, off = bez historie`,
-						"info",
-					);
-					return;
-				}
-				config.historyMode = mode;
-				persist();
-				ctx.ui.notify(
-					`prompt-translate history context: ${mode}${
-						mode === "ask"
-							? " (interaktivní dotaz před překladem, zda připojit nedávnou historii)"
-							: mode === "auto"
-								? " (automatické připojení historie při detekci zájmen/odkazů)"
-								: mode === "always"
-									? " (nedávná historie konverzace se připojuje vždy)"
-									: " (překlad bez historie konverzace)"
-					}`,
-					"info",
-				);
-				return;
-			}
-			if (subcommand === "confirm") {
-				const value = rest[0];
-				if (value !== "on" && value !== "off") {
-					ctx.ui.notify(
-						`prompt-translate confirm: ${formatChoice(["on", "off"], config.confirm)}\nPoužití: /prompt-translate confirm on|off`,
-						"info",
-					);
-					return;
-				}
-				config.confirm = value === "on";
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify(
-					`prompt-translate translation confirmation ${value}${
-						value === "on"
-							? " (přeložené prompty vyžadují potvrzení před odesláním)"
-							: ""
-					}`,
-					"info",
-				);
-				return;
-			}
-			if (subcommand === "diff") {
-				const value = rest[0];
-				if (value !== "on" && value !== "off") {
-					ctx.ui.notify(
-						`prompt-translate diff: ${formatChoice(["on", "off"], config.diff)}\nPoužití: /prompt-translate diff on|off`,
-						"info",
-					);
-					return;
-				}
-				config.diff = value === "on";
-				persist();
-				ctx.ui.notify(`prompt-translate translation diff summary ${value}`, "info");
-				return;
-			}
-			if (subcommand === "detect" || subcommand === "autodetect") {
-				const value = rest[0];
-				if (value !== "on" && value !== "off") {
-					ctx.ui.notify(
-						`prompt-translate detect: ${formatChoice(["on", "off"], config.autodetect)}\nPoužití: /prompt-translate detect on|off — přeskočí překlad, pokud je prompt již v angličtině nebo jde o kód`,
-						"info",
-					);
-					return;
-				}
-				config.autodetect = value === "on";
-				persist();
-				ctx.ui.notify(
-					`prompt-translate dynamic language detection ${value}`,
-					"info",
-				);
-				return;
-			}
-			if (["original", "showoriginal", "source"].includes(subcommand)) {
-				const value = rest[0];
-				if (value !== "on" && value !== "off") {
-					ctx.ui.notify(
-						`prompt-translate original: ${formatChoice(["on", "off"], config.showOriginal)}\nPoužití: /prompt-translate original on|off`,
-						"info",
-					);
-					return;
-				}
-				config.showOriginal = value === "on";
-				persist();
-				ctx.ui.notify(`prompt-translate original prompt display ${value}`, "info");
-				return;
-			}
-			if (subcommand === "balance") {
-				const force = rest[0];
-				if (force === "refresh") clearBalanceCache();
-				await refreshBalanceStatus(ctx);
-				const [rate, balance] = await Promise.all([
-					getUsdToCzkRate(ctx.signal),
-					getOpenRouterBalance(ctx),
-				]);
-				const lines: string[] = [];
-				lines.push(
-					`USD→CZK: ${typeof rate === "number" ? rate.toFixed(3) + " (ČNB)" : "n/a"}`,
-				);
-				if (balance) {
-					const czk =
-						typeof rate === "number" ? balance.remaining * rate : undefined;
-					lines.push(
-						`OpenRouter: $${balance.remaining.toFixed(2)}${typeof czk === "number" ? ` (≈ ${czk.toFixed(2)} Kč)` : ""} / $${balance.total.toFixed(2)} credit, used $${balance.used.toFixed(2)}`,
-					);
-				} else {
-					lines.push(
-						"OpenRouter: balance unavailable (set OPENROUTER_API_KEY or use an openrouter translate model)",
-					);
-				}
-				ctx.ui.notify(lines.join(" | "), "info");
-				return;
-			}
-			if (subcommand === "debug") {
-				const value = rest[0];
-				if (value !== "on" && value !== "off") {
-					ctx.ui.notify(
-						`prompt-translate debug: ${formatChoice(["on", "off"], config.debug)}\nPoužití: /prompt-translate debug on|off`,
-						"info",
-					);
-					return;
-				}
-				config.debug = value === "on";
-				persist();
-				ctx.ui.notify(`prompt-translate debug ${value}`, "info");
-				return;
-			}
-			if (subcommand === "reset") {
-				state.config = { ...DEFAULT_CONFIG };
-				state.pending = undefined;
-				persist();
-				updateTranslateStatus(ctx);
-				ctx.ui.notify("prompt-translate settings reset", "info");
-				return;
-			}
-			if (subcommand === "help") {
-				ctx.ui.notify(
-					"/prompt-translate on|off|status|input on|off|responses on|off|lang <language>|model current|default|<provider>/<model> [until YYYY-MM-DD]|think on|off|boost off|on|plus|mega|confirm on|off|diff on|off|detect on|off|original on|off|history [mode|inspect]|balance [refresh]|debug on|off|global [show|off]|reset — add --global to any subcommand to persist for all sessions",
-					"info",
-				);
-				return;
-			}
-			if (subcommand === "global") {
-				const value = rest[0];
-				if (value === "off" || value === "clear") {
-					clearGlobalConfig();
-					ctx.ui.notify(
-						"prompt-translate global config cleared; future sessions use defaults",
-						"info",
-					);
-					return;
-				}
-				if (!value || value === "show") {
-					ctx.ui.notify(
-						existsSync(GLOBAL_CONFIG_FILE)
-							? `global config: ${JSON.stringify(loadGlobalConfig())}`
-							: "no global config file; all sessions use defaults",
-						"info",
-					);
-					return;
-				}
-				ctx.ui.notify(
-					"Usage: /prompt-translate global [show|off] — any subcommand accepts --global to persist for all sessions",
-					"warning",
-				);
-				return;
-			}
-			ctx.ui.notify("Unknown command. Use: /prompt-translate help", "warning");
-		},
-	});
-
-	track(pi.on("input", async (event, ctx) => {
-		state.sessionCtx = ctx;
-		refreshBalanceStatus(ctx);
-		if (
-			!state.config.enabled ||
-			event.source === "extension" ||
-			event.images?.length
-		) {
-			return { action: "continue" };
-		}
-		// /goal commands: translate only the objective text, keep the command
-		// scaffold (subcommand, --tokens budget) intact. Normally unreachable
-		// (extension commands dispatch before the input event); the
-		// AgentSession.prompt interceptor above handles /goal instead. Kept as a
-		// fallback, with a guard against double-translating the interceptor's output.
-		const goalCommand = extractGoalObjective(event.text);
-		let textToTranslate: string;
-		let rebuild: ((translated: string) => string) | undefined;
-		if (goalCommand) {
-			if (!goalCommand.objective) return { action: "continue" };
-			if (
-				state.lastGoalTransform &&
-				event.text === state.lastGoalTransform.to &&
-				Date.now() - state.lastGoalTransform.at < 30_000
-			) {
-				return { action: "continue" };
-			}
-			textToTranslate = goalCommand.objective;
-			rebuild = goalCommand.rebuild;
-		} else {
-			if (event.text.trim().startsWith("/")) {
-				return { action: "continue" };
-			}
-			textToTranslate = event.text;
-		}
-
-		// Dynamic language and code detection:
-		if (state.config.autodetect && state.config.boost === "off") {
-			const detection = detectLanguageOrCode(textToTranslate);
-			if (detection.isEnglishOrCode) {
-				debug(ctx, `skipped translation: prompt detected as ${detection.reason}`);
-				state.pending = {
-					targetLanguage: state.config.targetLanguage,
-					translateResponses: state.config.translateResponses,
-				};
-				return { action: "continue" };
-			}
-		}
-
-		let conversationContext: string | undefined;
-		if (state.config.historyMode === "always") {
-			conversationContext = extractRecentContext(ctx);
-		} else if (state.config.historyMode === "auto") {
-			if (hasDeicticReferences(textToTranslate)) {
-				conversationContext = extractRecentContext(ctx);
-				if (conversationContext) {
-					debug(
-						ctx,
-						"auto-detected reference words; attached conversation context to translator",
-					);
-				}
-			}
-		} else if (state.config.historyMode === "ask" && ctx.hasUI) {
-			const candidate = extractRecentContext(ctx);
-			if (candidate) {
-				const choice = await ctx.ui.select(
-					"Kontext překladu: Připojit nedávnou historii konverzace k překladu?",
-					[
-						"Ne (výchozí — bez historie konverzace)",
-						"Ano (připojit nedávnou historii konverzace)",
-					],
-				);
-				if (choice?.startsWith("Ano")) {
-					conversationContext = candidate;
-					debug(ctx, "user confirmed attaching conversation context to translator");
-				}
-			}
-		}
-
-		if (conversationContext) {
-			debug(
-				ctx,
-				`attached conversation context to translator:\n${conversationContext}`,
-			);
-		}
-
-		try {
-			const translated = await translate(
-				ctx,
-				textToTranslate,
-				"English",
-				"prompt",
-				conversationContext,
-			);
-			const histBadge = conversationContext ? " [with history]" : "";
-			if (ctx.hasUI)
-				ctx.ui.notify(
-					`prompt-translate: prompt → EN${histBadge} ${formatCost(translated.costUsd, translated.costCzk)}`,
-					"info",
-				);
-			state.pending = {
-				targetLanguage: state.config.targetLanguage,
-				translateResponses: state.config.translateResponses,
-			};
-			const englishText = rebuild ? rebuild(translated.text) : translated.text;
-
-			if (state.config.confirm && ctx.hasUI) {
-				const promptPreview =
-					event.text.length > 500 ? `${event.text.slice(0, 500)}…` : event.text;
-				const transPreview =
-					englishText.length > 500 ? `${englishText.slice(0, 500)}…` : englishText;
-				const confirmationBody = formatConfirmationBody({
-					source: promptPreview,
-					english: transPreview,
-					boost: state.config.boost,
-					conversationContext,
-					usage: translated.usage,
-					costUsd: translated.costUsd,
-					costCzk: translated.costCzk,
-					styleSource: styleAtWords,
-				});
-				const confirmed = await ctx.ui.confirm(
-					"Potvrdit překlad promptu",
-					confirmationBody,
-				);
-				if (!confirmed) {
-					ctx.ui.notify(
-						"Překlad zamítnut; odesílám původní text bez překladu",
-						"warning",
-					);
-					return { action: "continue" };
-				}
-			}
-
-			pi.appendEntry(STATE_ENTRY_TYPE, {
-				at: new Date().toISOString(),
-				source: event.text,
-				english: englishText,
-				targetLanguage: state.config.targetLanguage,
-				translateModel: getEffectiveTranslateModel().setting,
-				boost: state.config.boost,
-				usage: translated.usage,
-				costUsd: translated.costUsd,
-				costCzk: translated.costCzk,
-				conversationContext,
-			});
-			return {
-				action: "transform",
-				text: englishText,
-			};
-		} catch (error) {
-			ctx.ui.notify(
-				`prompt translation failed; continuing with original prompt: ${error instanceof Error ? error.message : String(error)}`,
-				"error",
-			);
-			return { action: "continue" };
-		}
-	}));
-
-	track(pi.on("before_agent_start", (event, ctx) => {
-		// Refresh the status segment every turn so "current" model stays in sync.
-		updateTranslateStatus(ctx);
-		if (!state.pending) return;
-		debug(
-			ctx,
-			state.pending.translateResponses
-				? "forcing agent run language to English; final briefing will be translated after completion"
-				: "forcing agent run language to English; final briefing translation is disabled",
-		);
-		return {
-			systemPrompt: appendEnglishOnlyInstruction(
-				event.systemPrompt,
-				state.pending.translateResponses,
-			),
-		};
-	}));
-
-	track(pi.on("context", (event) => {
-		if (!state.config.enabled || finalTranslationByDisplayedText.size === 0)
-			return;
-		const messages = event.messages.map(replaceDisplayedAssistantTextWithEnglish);
-		if (messages.some((message, index) => message !== event.messages[index]))
-			return { messages };
-	}));
-
-	track(pi.on("turn_start", (event) => {
-		if (state.pending && state.pending.turnIndex === undefined)
-			state.pending.turnIndex = event.turnIndex;
-	}));
-
-	track(pi.on("message_end", async (event, ctx) => {
-		if (!state.pending || event.message.role !== "assistant") return;
-		// goal_complete / goal_blocked / goal_wait end the goal run: pi-goal sends no
-		// further assistant message afterwards, so the text riding alongside that tool
-		// call IS the final briefing. Translate it despite the tool call.
-		const toolNames = event.message.content
-			.filter((part): part is ToolCall => part.type === "toolCall")
-			.map((part) => part.name);
-		const goalTerminal = toolNames.some(
-			(name) =>
-				name === "goal_complete" || name === "goal_blocked" || name === "goal_wait",
-		);
-		// Do not translate ordinary tool-calling assistant messages. Keep the pending
-		// translation request alive so the final work briefing after tool execution is translated.
-		if (
-			!goalTerminal &&
-			(event.message.stopReason === "toolUse" || toolNames.length > 0)
-		)
-			return;
-
-		const finalText = getText(event.message);
-		if (!finalText.trim()) return;
-
-		const current = state.pending;
-		state.pending = undefined;
-		if (!current.translateResponses) return;
-
-		try {
-			const translated = await translate(
-				ctx,
-				finalText,
-				current.targetLanguage,
-				"answer",
-			);
-			rememberFinalTranslation(pi, {
-				at: new Date().toISOString(),
-				targetLanguage: current.targetLanguage,
-				english: finalText.trim(),
-				translated: translated.text,
-				translateModel: getEffectiveTranslateModel().setting,
-				usage: translated.usage,
-			});
-			if (ctx.hasUI)
-				ctx.ui.notify(
-					`prompt-translate: reply → ${current.targetLanguage} ${formatCost(translated.costUsd, translated.costCzk)}`,
-					"info",
-				);
-			refreshBalanceStatus(ctx);
-			return { message: withSingleText(event.message, translated.text) };
-		} catch (error) {
-			ctx.ui.notify(
-				`answer translation failed; keeping original answer: ${error instanceof Error ? error.message : String(error)}`,
-				"error",
-			);
-		}
-	}));
+	registerTranslateCommand(pi);
+	registerAgentHooks(pi, track);
 }
+
+export const __test = {
+	CONFIG_ENTRY_TYPE,
+	FINAL_TRANSLATION_ENTRY_TYPE,
+	STATE_ENTRY_TYPE,
+	DEFAULT_CONFIG,
+	ENGLISH_ONLY_AGENT_INSTRUCTION,
+	appendEnglishOnlyInstruction,
+	buildEffectiveHeaders,
+	buildEnglishOnlyInstruction,
+	cleanTranslationOutput,
+	createTranslationContext,
+	estimateTranslationMaxTokens,
+	extractGoalObjective,
+	extractLatestConfig,
+	extractRecentContext,
+	formatTelemetryOverview,
+	getText,
+	hasDeicticReferences,
+	hasToolCall,
+	normalizeConfig,
+	normalizeLanguage,
+	parseModelSetting,
+	protectFinalAnswerSegments,
+	rebuildFinalTranslationMap,
+	rememberFinalTranslation,
+	replaceDisplayedAssistantTextWithEnglish,
+	resetState() {
+		state.config = { ...DEFAULT_CONFIG };
+		state.pending = undefined;
+	},
+	restoreProtectedSegments,
+	setConfig(next: TranslateConfig) {
+		state.config = { ...next };
+	},
+	withSingleText,
+};

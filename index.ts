@@ -55,6 +55,7 @@ import {
 } from "./translate.js";
 import { registerTranslateCommand } from "./command.js";
 import { registerAgentHooks } from "./agent-hooks.js";
+import { registerToolUiHooks } from "./translate-tool-ui.js";
 
 export default function (pi: ExtensionAPI) {
 	const unsubscribers: Array<() => void> = [];
@@ -179,6 +180,7 @@ export default function (pi: ExtensionAPI) {
 
 	registerTranslateCommand(pi);
 	registerAgentHooks(pi, track);
+	registerToolUiHooks(pi, track);
 }
 
 export const __test = {

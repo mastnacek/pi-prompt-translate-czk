@@ -62,6 +62,7 @@ Example (Czech input):
 /prompt-translate history off|ask|auto|always|inspect Conversation context injection mode / inspection
 /prompt-translate diff on|off                Show side-by-side prompt diff with token count and cost
 /prompt-translate detect on|off              Auto-skip translation if prompt is already English or code
+/prompt-translate ui on|off                  Translate tool-rendered text (quick-win card, closing echo) into the target language
 /prompt-translate think on|off               Use reasoning on the translate model (low effort, capped)
 /prompt-translate original on|off            Show the original prompt above the translated one
 /prompt-translate balance [refresh]          USD→CZK rate + OpenRouter credit balance
@@ -106,6 +107,21 @@ Model IDs are `<provider>/<model>`. Note the provider matters:
 `openrouter/google/gemini-3.7-flash`. If a temporary model is broken (not
 found, missing auth), translation automatically falls back to the base model
 with a warning instead of failing.
+
+### Tool-UI Text (quick-win card)
+
+The agent is forced to work in English, and some tools render model-authored English straight into your screen. The `quick_win` card is the common case: its title, impact, steps, proof and the closing statusline echo land in an overlay before any assistant sentence exists, so reply translation never sees them.
+
+`/prompt-translate ui on` (default) hooks `tool_call` and rewrites the tool's own text arguments **before the tool runs** — so the overlay, the statusline echo and the transcript all render the same target-language card. Arguments that are enums (`effort`) are never touched, or the tool would reject its own input.
+
+All fields of one call travel in a single LLM request as `<<<n>>>`-marked blocks; a marker the model drops leaves that field in English rather than half-translated. Any failure keeps the English card and logs to debug — a broken translation must never block the tool.
+
+```
+/prompt-translate ui off        English cards, no extra translation call
+/prompt-translate ui on --global  make the setting apply to all sessions
+```
+
+Static vocabulary that the tool itself owns (`Quick win:`, `Impact:`, `Steps:`) and the model-facing choice directive stay in English by design: the directive is an instruction to the agent, not UI copy.
 
 ## Status bar
 

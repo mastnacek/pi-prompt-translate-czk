@@ -60,6 +60,13 @@ export type TranslateConfig = {
 	/** When on, automatically detects if a prompt is already pure English or code
 	 *  and skips translation to save latency and tokens. */
 	autodetect: boolean;
+	/** When on, model-authored text that a tool renders into the user's screen
+	 *  (the quick-win card, its closing echo) is translated into the target
+	 *  language before the tool runs. */
+	translateToolUi: boolean;
+	/** Tools whose UI text is translated. Unset means DEFAULT_TOOL_UI_TARGETS;
+	 *  names without a known field map are ignored rather than translated blind. */
+	toolUiTools?: string[];
 	debug: boolean;
 };
 
@@ -127,6 +134,12 @@ export type ExtensionContextWithCompleteSimple = ExtensionContext & {
 
 export type BalanceInfo = { remaining: number; total: number; used: number };
 
+/** Tools whose UI-facing arguments this plugin translates by default. */
+export const DEFAULT_TOOL_UI_TARGETS: readonly string[] = [
+	"quick_win",
+	"quick_win_done",
+];
+
 export const DEFAULT_CONFIG: TranslateConfig = {
 	enabled: true,
 	translateResponses: true,
@@ -139,5 +152,6 @@ export const DEFAULT_CONFIG: TranslateConfig = {
 	showOriginal: true,
 	diff: true,
 	autodetect: true,
+	translateToolUi: true,
 	debug: false,
 };

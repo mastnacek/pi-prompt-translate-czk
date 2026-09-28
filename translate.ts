@@ -47,7 +47,7 @@ export async function translate(
 	ctx: ExtensionContext,
 	text: string,
 	targetLanguage: string,
-	purpose: "prompt" | "answer",
+	purpose: "prompt" | "answer" | "tool",
 	conversationContext?: string,
 ): Promise<TranslationResult> {
 	const config = state.config;
@@ -71,11 +71,9 @@ export async function translate(
 	debug(ctx, `${purpose} translation with ${modelLabel(model)}`);
 
 	const protectedInput =
-		purpose === "answer"
-			? protectFinalAnswerSegments(text)
-			: purpose === "prompt"
-				? protectPromptSegments(text)
-				: { text, segments: [] };
+		purpose === "prompt"
+			? protectPromptSegments(text)
+			: protectFinalAnswerSegments(text);
 	const systemPrompt =
 		purpose === "prompt"
 			? config.boost === "mega"
@@ -85,7 +83,14 @@ export async function translate(
 					: config.boost === "boost"
 						? PROMPT_BOOST_SYSTEM_PROMPT
 						: PROMPT_TRANSLATE_SYSTEM_PROMPT
-			: [
+			: purpose === "tool"
+				? [
+						`Translate every block of text to ${targetLanguage}. The blocks are separated by lines of the form <<<n>>>.`,
+						"Repeat every <<<n>>> marker exactly once, in the same order, and translate only the text under it.",
+						"Output nothing but the markers and their translations: no preamble, no commentary, no numbering of your own.",
+						"Keep code, commands, flags, file paths, file names, numbers, markdown and placeholders unchanged.",
+					].join("\n")
+				: [
 					`Translate the text inside <source_text> to ${targetLanguage}. Output ONLY the translation.`,
 					"Do not wrap your output in <source_text> tags, and do not add commentary.",
 					"Keep code, paths, commands, flags, markdown, URLs, JSON, placeholders, XML-like tags, machine-readable sections, and protected tokens unchanged.",
@@ -124,7 +129,7 @@ export async function translate(
 	const instrumentedCompleteSimple = (ctx as ExtensionContextWithCompleteSimple)
 		.completeSimple;
 	const shouldUseInstrumentedTranslation =
-		purpose === "prompt" && instrumentedCompleteSimple;
+		purpose !== "answer" && instrumentedCompleteSimple;
 	const makeDoCall =
 		(reasoning: ThinkingLevel | undefined) =>
 		async (): Promise<AssistantMessage> => {
@@ -259,7 +264,7 @@ export async function translate(
 	state.telemetry.totalRequests++;
 	if (purpose === "prompt") {
 		state.telemetry.promptRequests++;
-	} else {
+	} else if (purpose === "answer") {
 		state.telemetry.answerRequests++;
 	}
 	if (model.provider === "openrouter") {

@@ -74,6 +74,13 @@ export function normalizeConfig(
 		showOriginal: value.showOriginal ?? DEFAULT_CONFIG.showOriginal,
 		diff: value.diff ?? DEFAULT_CONFIG.diff,
 		autodetect: value.autodetect ?? DEFAULT_CONFIG.autodetect,
+		translateToolUi: value.translateToolUi ?? DEFAULT_CONFIG.translateToolUi,
+		toolUiTools: Array.isArray(value.toolUiTools)
+			? value.toolUiTools
+					.filter((name): name is string => typeof name === "string")
+					.map((name) => name.trim())
+					.filter((name) => name.length > 0)
+			: undefined,
 		debug: value.debug ?? DEFAULT_CONFIG.debug,
 	};
 }

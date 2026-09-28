@@ -239,6 +239,7 @@ export async function statusText(ctx: ExtensionContext): Promise<string> {
 		`history=${config.historyMode}`,
 		`confirm=${config.confirm ? "on" : "off"}`,
 		`showOriginal=${config.showOriginal ? "on" : "off"}`,
+		`toolUiText=${config.translateToolUi ? "on" : "off"}`,
 		`usdToCzk=${rateText} (ČNB)`,
 		`openRouterBalance=${balanceText}`,
 		`debug=${config.debug ? "on" : "off"}`,

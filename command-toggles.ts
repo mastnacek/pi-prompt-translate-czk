@@ -2,6 +2,14 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { state } from "./state.js";
 import { formatChoice, updateTranslateStatus } from "./status.js";
 
+/**
+ * Every toggle below persists through the injected `persist` callback, which
+ * calls `saveConfig(config, writeGlobal, ctx.cwd)`: with `--global` the setting
+ * lands in `~/.pi/agent/pi-prompt-translate.json` (all sessions), without it in
+ * `<cwd>/.pi/pi-prompt-translate.json` (project only). The flag itself is parsed
+ * once in `registerTranslateCommand` (command.ts) and reaches the handlers as
+ * `writeGlobal`, so no toggle re-parses it.
+ */
 export function handleToggleCommands(
 	subcommand: string,
 	rest: string[],
@@ -122,6 +130,25 @@ export function handleToggleCommands(
 		persist();
 		ctx.ui.notify(
 			`prompt-translate dynamic language detection ${value}${writeGlobal ? " (uloženo globálně)" : " (uloženo do projektu)"}`,
+			"info",
+		);
+		return true;
+	}
+
+	if (["ui", "tool-ui", "card"].includes(subcommand)) {
+		const value = rest[0];
+		if (value !== "on" && value !== "off") {
+			ctx.ui.notify(
+				`prompt-translate ui: ${formatChoice(["on", "off"], config.translateToolUi)}\nPoužití: /prompt-translate ui on|off [--global]`,
+				"info",
+			);
+			return true;
+		}
+		config.translateToolUi = value === "on";
+		persist();
+		updateTranslateStatus(ctx);
+		ctx.ui.notify(
+			`prompt-translate ui text ${value}${writeGlobal ? " (uloženo globálně)" : " (uloženo do projektu)"}`,
 			"info",
 		);
 		return true;

@@ -29,6 +29,7 @@ export function getCommandDocs(cfg: TranslateConfig): Record<string, string> {
 		original: `zobrazení původního promptu nad překladem ${onOff(cfg.showOriginal)}`,
 		diff: `zobrazení porovnání původního a vylepšeného promptu ${onOff(cfg.diff)}`,
 		detect: `automatická detekce angličtiny a kódu ${onOff(cfg.autodetect)}`,
+		ui: `překlad textu, který nástroj zobrazí (quick-win karta) ${onOff(cfg.translateToolUi)}`,
 		balance: "zůstatek OpenRouter kreditu a kurz ČNB (balance refresh)",
 		stats: "přehled telemetrie, úspor prompt cachingu a OpenRouter routingu",
 		telemetry: "alias pro stats",
@@ -64,6 +65,9 @@ export function getArgumentCompletions(prefix: string): AutocompleteItem[] | nul
 					"diff",
 					"detect",
 					"autodetect",
+					"ui",
+					"tool-ui",
+					"card",
 					"debug",
 				].includes(cmd)
 			) {
@@ -75,6 +79,7 @@ export function getArgumentCompletions(prefix: string): AutocompleteItem[] | nul
 				else if (cmd === "original") currentVal = cfg.showOriginal;
 				else if (cmd === "diff") currentVal = cfg.diff;
 				else if (["detect", "autodetect"].includes(cmd)) currentVal = cfg.autodetect;
+				else if (["ui", "tool-ui", "card"].includes(cmd)) currentVal = cfg.translateToolUi;
 				else if (cmd === "debug") currentVal = cfg.debug;
 
 				const items = [
@@ -250,6 +255,9 @@ export function getArgumentCompletions(prefix: string): AutocompleteItem[] | nul
 			"diff",
 			"detect",
 			"original",
+			"ui",
+			"tool-ui",
+			"card",
 			"debug",
 			"balance",
 			"global",

@@ -1,5 +1,21 @@
 {
   "version": 1,
-  "lastUpdated": "2026-09-03 07:42:44",
-  "records": []
+  "lastUpdated": "2026-09-28 14:59:56",
+  "records": [
+    {
+      "id": "SPAI-001",
+      "title": "quick-win karta se nepřekládala: pi-prompt-translate-czk 0.7.0 přidal tool_call hook, který přepíše textové argumenty nástroje před execute() (quick_win, quick_win_done); enum effort zůstává anglický, ztracený marker nebo chyba = anglická karta místo zablokovaného nástroje",
+      "type": "Note",
+      "status": "note",
+      "symbol": "-",
+      "timestamp": "2026-09-28 14:59:56",
+      "tags": [
+        "pi"
+      ],
+      "priority": "high",
+      "project": "pi-prompt-translate-czk",
+      "projectPath": "D:/01_programovani/pi/plugins/pi-prompt-translate-czk",
+      "file": "2026-09-28-SPAI-001-quick-win-karta-se-neprekladala-pi-prompt-translat.md"
+    }
+  ]
 }

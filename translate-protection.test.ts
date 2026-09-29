@@ -16,6 +16,7 @@ import {
 	protectFinalAnswerSegments,
 	protectPromptSegments,
 	restoreProtectedSegments,
+	stripKeepTags,
 } from "./translate";
 
 describe("protectPromptSegments & restoreProtectedSegments", () => {
@@ -102,7 +103,8 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 		expect(protectedResult.text).not.toContain("@data/config.json");
 		expect(protectedResult.text).not.toContain('@"src/my file.ts"');
 		expect(protectedResult.text).not.toContain("?seznam_uzivatelu");
-		expect(protectedResult.text).not.toContain("vysledekHledani");
+		// at-words are now marked visibly, not masked into a placeholder
+		expect(protectedResult.text).toContain("<keep>vysledekHledani</keep>");
 
 		const translated = protectedResult.text
 			.replace("Vezmi soubor", "Take file")
@@ -119,6 +121,63 @@ describe("protectPromptSegments & restoreProtectedSegments", () => {
 		expect(restored).toContain('@"src/my file.ts"');
 		expect(restored).toContain("?seznam_uzivatelu");
 		expect(restored).toContain("vysledekHledani");
+	});
+
+	it("marks at-words as visible <keep> terms instead of hiding them", () => {
+		const prompt = "Uprav herder v src/herder.ts";
+		const { text } = protectPromptSegments(prompt, ["herder"]);
+
+		// the model must SEE the term - that is the whole point of rule 11
+		expect(text).toContain("<keep>herder</keep>");
+		expect(text).toContain("src/<keep>herder</keep>.ts");
+
+		// tags stripped, term kept as-is
+		const translated = "Update <keep>herder</keep> in src/<keep>herder</keep>.ts";
+		expect(stripKeepTags(translated)).toBe(
+			"Update herder in src/herder.ts",
+		);
+
+		// decorative degradation: model drops a tag, the term survives
+		expect(stripKeepTags("Update herder in src/herder.ts")).toBe(
+			"Update herder in src/herder.ts",
+		);
+	});
+
+	it("wraps only the stem of a Czech-inflected at-word", () => {
+		// "do herderu" used to slip through unprotected and the model invented
+		// "the herder directory" (see docs/2026-09-29-translation-probe.md).
+		const w = (text: string) => protectPromptSegments(text, ["herder"]).text;
+
+		expect(w("Přepni se do herderu")).toBe(
+			"Přepni se do <keep>herder</keep>u",
+		);
+		expect(w("v herderu")).toBe("v <keep>herder</keep>u");
+		expect(w("s herderem")).toBe("s <keep>herder</keep>em");
+		expect(w("o herderovi")).toBe("o <keep>herder</keep>ovi");
+		expect(w("herder spadl")).toBe("<keep>herder</keep> spadl");
+
+		// a longer word that merely starts with the term stays untouched
+		expect(w("herdermann")).toBe("herdermann");
+	});
+
+	it("rewrites user-written !term! markers into <keep> tags", () => {
+		const p = (text: string) => protectPromptSegments(text, []).text;
+
+		expect(p("Přejmenuj modul na !objednávka!.")).toBe(
+			"Přejmenuj modul na <keep>objednávka</keep>.",
+		);
+		expect(stripKeepTags(p("do !herder!u"))).toBe("do herderu");
+		expect(p("!a! !b! !c!")).toBe(
+			"<keep>a</keep> <keep>b</keep> <keep>c</keep>",
+		);
+
+		// Single-token rule: Czech sentence punctuation must never be eaten.
+		expect(p("Pozor! To je chyba!")).toBe("Pozor! To je chyba!");
+		expect(p("Vidím to! Ano! A tak dál!")).toBe("Vidím to! Ano! A tak dál!");
+		// no spaces inside a marker - use <keep>a b</keep> for a phrase
+		expect(p("!a b!")).toBe("!a b!");
+		// inside code the code rule has already masked it away
+		expect(p("`!x!`")).not.toContain("<keep>");
 	});
 
 	it("protects embedded filesystem and clipboard image paths from translation", () => {

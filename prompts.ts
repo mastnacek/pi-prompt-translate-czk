@@ -11,6 +11,9 @@
  * translated turns, with helpers to keep it idempotent across turns.
  */
 
+export const KEEP_TERM_RULE =
+	"Terms wrapped in <keep>...</keep> are proper names, product or program names, file names, and identifiers. Pass them through EXACTLY as written: never translate, transliterate, expand, explain, or reformat them. Keep the <keep> tags in your output.";
+
 export const PROMPT_TRANSLATE_SYSTEM_PROMPT = [
 	"You are a specialized translation engine for an AI coding agent. Translate the text inside <source_text> to English. Output ONLY the translated text.",
 	"Do not wrap your output in <source_text> tags, and do not add conversational remarks, greetings, notes, or explanations.",

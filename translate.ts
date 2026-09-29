@@ -28,18 +28,19 @@ import { debug, formatUsage, updateTranslateStatus } from "./status";
 import { state } from "./state";
 import type { ExtensionContextWithCompleteSimple, ModelWithAuth, TranslationResult } from "./types";
 import {
+	KEEP_TERM_RULE,
 	PROMPT_BOOST_SYSTEM_PROMPT,
 	PROMPT_MEGA_SYSTEM_PROMPT,
 	PROMPT_PLUS_SYSTEM_PROMPT,
 	PROMPT_TRANSLATE_SYSTEM_PROMPT,
 } from "./prompts";
-import { protectPromptSegments, protectFinalAnswerSegments, restoreProtectedSegments, cleanTranslationOutput } from "./translate-protect.js";
+import { protectPromptSegments, protectFinalAnswerSegments, restoreProtectedSegments, cleanTranslationOutput, stripKeepTags } from "./translate-protect.js";
 import { buildEffectiveHeaders, createTranslationContext, isTransientError } from "./translate-context.js";
 import { getText, estimateTranslationMaxTokens } from "./translate-text.js";
 
 // Re-exported so every existing importer keeps working unchanged.
 export { detectLanguageOrCode } from "./translate-language.js";
-export { protectPromptSegments, protectFinalAnswerSegments, restoreProtectedSegments, cleanTranslationOutput } from "./translate-protect.js";
+export { protectPromptSegments, protectFinalAnswerSegments, restoreProtectedSegments, cleanTranslationOutput, stripKeepTags } from "./translate-protect.js";
 export { buildEffectiveHeaders, hasDeicticReferences, extractRecentContext, createTranslationContext } from "./translate-context.js";
 export { getText, hasToolCall, withSingleText, estimateTranslationMaxTokens } from "./translate-text.js";
 
@@ -76,13 +77,15 @@ export async function translate(
 			: protectFinalAnswerSegments(text);
 	const systemPrompt =
 		purpose === "prompt"
-			? config.boost === "mega"
-				? PROMPT_MEGA_SYSTEM_PROMPT
-				: config.boost === "plus"
-					? PROMPT_PLUS_SYSTEM_PROMPT
-					: config.boost === "boost"
-						? PROMPT_BOOST_SYSTEM_PROMPT
-						: PROMPT_TRANSLATE_SYSTEM_PROMPT
+			? `${KEEP_TERM_RULE}\n${
+					config.boost === "mega"
+						? PROMPT_MEGA_SYSTEM_PROMPT
+						: config.boost === "plus"
+							? PROMPT_PLUS_SYSTEM_PROMPT
+							: config.boost === "boost"
+								? PROMPT_BOOST_SYSTEM_PROMPT
+								: PROMPT_TRANSLATE_SYSTEM_PROMPT
+				}`
 			: purpose === "tool"
 				? [
 						`Translate every block of text to ${targetLanguage}. The blocks are separated by lines of the form <<<n>>>.`,
@@ -243,9 +246,8 @@ export async function translate(
 		`${purpose} translation usage: ${formatUsage(response.usage, czkRate)}`,
 	);
 	const cleanedOutput = cleanTranslationOutput(getText(response).trim());
-	const translatedText = restoreProtectedSegments(
-		cleanedOutput,
-		protectedInput.segments,
+	const translatedText = stripKeepTags(
+		restoreProtectedSegments(cleanedOutput, protectedInput.segments),
 	);
 	const costUsd =
 		typeof response.usage.cost?.total === "number"

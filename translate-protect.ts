@@ -12,6 +12,35 @@ function shouldProtectTagName(tagName: string): boolean {
 	return normalized.includes("action") || normalized === "pi-autoprompt-next";
 }
 
+/**
+ * Czech case endings a name can pick up in running text (`herder` → `do
+ * herderu`, `o herderovi`, `s herderem`). Longest first: JS alternation is
+ * ordered, so `ovi` has to precede `o` and `em` before `e`.
+ */
+const CZ_CASE_ENDINGS = [
+	"ovi",
+	"ého",
+	"ému",
+	"ých",
+	"ům",
+	"ech",
+	"ách",
+	"ami",
+	"emi",
+	"em",
+	"ou",
+	"u",
+	"a",
+	"e",
+	"o",
+	"ě",
+	"y",
+	"ý",
+	"i",
+	"í",
+	"ů",
+].join("|");
+
 export function protectPromptSegments(
 	text: string,
 	knownWords: string[] = state.atWords,
@@ -86,13 +115,31 @@ export function protectPromptSegments(
 		(match) => addSegment(match),
 	);
 
-	// 10. Protect ? symbol queries (?myFunc, ?varName from pi-at-words)
+	// 10. User-written `!term!` markers: the explicit "do not translate this"
+	// syntax. Rewritten into the same <keep> tags rule 12 emits, so there is one
+	// restore path (`stripKeepTags`). Placed after rules 1-9 so a marker inside
+	// code, a path or a URL is already masked and never reaches this pattern.
+	//
+	// `[^\s!]+` (no whitespace) is load-bearing, not cosmetic: with `[^!]+` a
+	// plain Czech sentence like "Pozor! To je chyba!" would be read as one
+	// protected span (" To je chyba") and silently left untranslated.
+	// ponytail: single token only, no spaces — so `!a b!` is not a marker; use
+	// <keep>a b</keep> for a phrase.
+	protectedText = protectedText.replace(
+		/!([^\s!]+)!/g,
+		(_match, term: string) => `<keep>${term}</keep>`,
+	);
+
+	// 11. Protect ? symbol queries (?myFunc, ?varName from pi-at-words)
 	protectedText = protectedText.replace(
 		/(?<=[ \t([{]|^)\?[A-Za-z0-9_]{2,}/g,
 		(match) => addSegment(match),
 	);
 
-	// 11. Protect confirmed ?words / symbols from @-mentioned files
+	// 12. Mark (not mask) confirmed ?words / symbols from @-mentioned files.
+	// Rules 1-10 hide opaque payloads the model must not read. These are the
+	// opposite: names the model MUST see to understand the sentence, it just
+	// must not translate them. A placeholder would erase that context.
 	if (knownWords && knownWords.length > 0) {
 		const alts = [...knownWords]
 			.filter(
@@ -102,8 +149,21 @@ export function protectPromptSegments(
 			.sort((a, b) => b.length - a.length)
 			.join("|");
 		if (alts) {
-			const re = new RegExp(`(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`, "g");
-			protectedText = protectedText.replace(re, (match) => addSegment(match));
+			// Without a case ending in the pattern, `?herder` protects the nominative
+			// only: "do herderu" slipped through, and the model invented "the herder
+			// directory". Match the ending too, but wrap ONLY the stem so the model
+			// drops the Czech suffix instead of being handed "herderu".
+			// ponytail: fixed ending list, not a Czech morphology engine — add endings
+			// here as they turn up; worst case is a term left untranslated.
+			const re = new RegExp(
+				`(?<![A-Za-z0-9_])(${alts})(?:(${CZ_CASE_ENDINGS}))?(?![A-Za-z0-9_])`,
+				"g",
+			);
+			protectedText = protectedText.replace(
+				re,
+				(_match, stem: string, ending?: string) =>
+					`<keep>${stem}</keep>${ending ?? ""}`,
+			);
 		}
 	}
 
@@ -189,6 +249,15 @@ export function restoreProtectedSegments(
 		}
 	}
 	return restored;
+}
+
+/**
+ * Drop the visible <keep> markers added by rule 11, keeping the wrapped term.
+ * The term itself is never re-inserted from a segment table: the model already
+ * had it in view, so the worst case is a mangled term, not silently lost content.
+ */
+export function stripKeepTags(text: string): string {
+	return text.replace(/<\/?keep>/g, "");
 }
 
 export function cleanTranslationOutput(text: string): string {

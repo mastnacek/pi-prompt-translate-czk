@@ -58,6 +58,7 @@ describe("translation context, telemetry and display helpers", () => {
 		state.telemetry.answerRequests = 3;
 		state.telemetry.openRouterRequests = 10;
 		state.telemetry.cacheHitTurns = 8;
+		state.telemetry.promptAnswerCacheHits = 8;
 		state.telemetry.cachedTokens = 2500;
 		state.telemetry.savedCostUsd = 0.0025;
 		state.sessionCostUsd = 0.001;
@@ -70,6 +71,7 @@ describe("translation context, telemetry and display helpers", () => {
 		const overview = await formatTelemetryOverview(mockCtx);
 		expect(overview).toContain("pi-prompt-translate — Telemetry & Optimizations");
 		expect(overview).toContain("Cache Hit Rate:   80.0%");
+		expect(overview).toContain("8 of 10 prompt+answer requests hit cache");
 		expect(overview).toContain("Tokens from Cache: 2,500");
 		expect(overview).toContain("Sticky Routing:   Active (x-session-id pinned)");
 		expect(overview).toContain("Saved via Cache:");

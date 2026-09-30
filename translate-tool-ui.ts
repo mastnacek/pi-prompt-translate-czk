@@ -72,14 +72,25 @@ export function formatBlocks(fields: readonly ToolTextField[]): string {
 }
 
 /**
- * Read the translations back. Anything the model did not mark comes back
- * `undefined`: a partial answer is discarded by the caller rather than written
- * into the tool input half-translated.
+ * Read the translations back, or `null` when the model did not honour the marker
+ * contract. A partial answer is never written into the tool input half-translated.
+ *
+ * `null` covers more than dropped markers. The dangerous failure is a *shifted*
+ * numbering — a model that starts at `<<<1>>>` or skips a middle marker still
+ * produces N blocks, but every one of them lands in the wrong field, so the card
+ * renders with the impact line under the title and one field left in English.
+ * Off-by-one is also likelier than a total drop on a small model. So the marker set
+ * must be exactly 0..count-1: anything else is rejected wholesale rather than
+ * applied to whichever fields happened to line up.
  */
-export function parseBlocks(output: string, count: number): (string | undefined)[] {
+export function parseBlocks(
+	output: string,
+	count: number,
+): (string | undefined)[] | null {
 	const parsed: (string | undefined)[] = new Array(count).fill(undefined);
 	let current: number | undefined;
 	let buffer: string[] = [];
+	const seen: number[] = [];
 
 	const flush = (): void => {
 		if (current !== undefined && current < count) {
@@ -94,12 +105,23 @@ export function parseBlocks(output: string, count: number): (string | undefined)
 		if (match) {
 			flush();
 			current = Number(match[1]);
+			seen.push(current);
 			continue;
 		}
 		// Text before the first marker is preamble: dropped by design.
 		if (current !== undefined) buffer.push(line);
 	}
 	flush();
+
+	// The marker contract is 0..count-1, each exactly once, in order. `parsed[i]`
+	// also has to be set, so an empty or whitespace-only block counts as a breach:
+	// accepting it would write an empty string over real card text.
+	const ordered = seen.filter((index, i) => seen[i - 1] !== index);
+	if (ordered.length !== count) return null;
+	for (let i = 0; i < count; i++) {
+		if (ordered[i] !== i) return null;
+		if (parsed[i] === undefined) return null;
+	}
 	return parsed;
 }
 
@@ -150,11 +172,21 @@ export function registerToolUiHooks(
 					"tool",
 				);
 				const parsed = parseBlocks(result.text, fields.length);
+				// All-or-nothing: on a marker-contract breach the card stays fully
+				// English. Applying the fields that happened to line up is what
+				// produced cards with the impact line under the title.
+				if (!parsed) {
+					debug(
+						ctx,
+						`tool-ui: ${event.toolName} left English (model did not honour the <<<n>>> numbering; card left untranslated)`,
+					);
+					return;
+				}
 				const applied = applyTranslations(input, fields, parsed as string[]);
 				if (applied < fields.length) {
 					debug(
 						ctx,
-						`tool-ui: ${event.toolName} only partially translated (${applied}/${fields.length}); untouched fields stay English`,
+						`tool-ui: ${event.toolName} only partially applied (${applied}/${fields.length}); untouched fields stay English`,
 					);
 					return;
 				}

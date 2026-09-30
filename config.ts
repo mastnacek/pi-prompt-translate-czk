@@ -95,14 +95,14 @@ export function loadGlobalConfig(): Partial<TranslateConfig> {
 	}
 }
 
-export function saveGlobalConfig() {
+export function saveGlobalConfig(cfg: Partial<TranslateConfig> = state.config) {
 	try {
 		// Ensure ~/.pi/agent exists before writing (AGENTS.md §5) — the agent dir
 		// may not exist on a fresh machine.
 		mkdirSync(dirname(GLOBAL_CONFIG_FILE), { recursive: true });
 		writeFileSync(
 			GLOBAL_CONFIG_FILE,
-			JSON.stringify(state.config, null, 2),
+			JSON.stringify(cfg, null, 2),
 			"utf8",
 		);
 	} catch {
@@ -153,8 +153,11 @@ export function saveConfig(
 	isGlobal = false,
 	cwd?: string,
 ) {
+	// `cfg` is threaded through on both paths. It used to be dropped in global mode,
+	// which only worked because the sole caller passed state.config — the next
+	// caller to pass anything else would have had its argument silently ignored.
 	if (isGlobal || !cwd) {
-		saveGlobalConfig();
+		saveGlobalConfig(cfg);
 	} else {
 		saveProjectConfig(cwd, cfg);
 	}

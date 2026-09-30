@@ -84,11 +84,27 @@ export function extractGoalObjective(
 const PROMPT_INTERCEPTOR_MARKER = Symbol.for(
 	"pi-prompt-translate.prompt-interceptor",
 );
+/** The pristine AgentSession.prototype.prompt, stashed before the first wrap. */
+const PROMPT_INTERCEPTOR_ORIGINAL = Symbol.for(
+	"pi-prompt-translate.prompt-original",
+);
+/**
+ * The live translation handler. The wrapper installed on the prototype is stable,
+ * but the handler behind it is re-registered on every module load.
+ */
+const PROMPT_INTERCEPTOR_HANDLER = Symbol.for(
+	"pi-prompt-translate.prompt-handler",
+);
 
 type PromptOptions = {
 	images?: unknown[];
 	source?: string;
 };
+
+type PromptHandler = (
+	text: string,
+	options?: PromptOptions,
+) => Promise<string>;
 
 async function translateGoalCommandText(
 	text: string,
@@ -181,10 +197,27 @@ export function installPromptInterceptor() {
 		PropertyKey,
 		unknown
 	>;
+
+	// Always re-point the wrapper at THIS module instance's `state`. A /reload
+	// drops the extension cache and rebuilds the module graph, so `state` below is
+	// a fresh object while `AgentSession.prototype` is not. Registering the handler
+	// unconditionally is what keeps /goal translating after a reload; the previous
+	// version bailed out on the marker and left the prototype calling a closure
+	// holding a dead sessionCtx, so /goal silently stopped translating.
+	proto[PROMPT_INTERCEPTOR_HANDLER] =
+		translateGoalCommandText as unknown as PromptHandler;
+
 	if (proto[PROMPT_INTERCEPTOR_MARKER]) return;
-	const original = proto.prompt;
-	if (typeof original !== "function") return;
-	const originalPrompt = original as (
+
+	// Unwrap from the pristine original, never from a previous wrapper: pi loads
+	// every extension against one shared AgentSession, and a re-wrap of a re-wrap
+	// would translate the same text once per install.
+	const stashed = proto[PROMPT_INTERCEPTOR_ORIGINAL];
+	const current = stashed ?? proto.prompt;
+	if (typeof current !== "function") return;
+	proto[PROMPT_INTERCEPTOR_ORIGINAL] = current;
+
+	const originalPrompt = current as (
 		this: unknown,
 		text: string,
 		options?: PromptOptions,
@@ -196,11 +229,30 @@ export function installPromptInterceptor() {
 	) {
 		let rewritten = text;
 		try {
-			rewritten = await translateGoalCommandText(text, options);
+			// Read the handler off the prototype on every call, never capture it:
+			// the binding is replaced by the next module load.
+			const handler = proto[PROMPT_INTERCEPTOR_HANDLER] as
+				| PromptHandler
+				| undefined;
+			if (handler) rewritten = await handler(text, options);
 		} catch {
 			rewritten = text;
 		}
 		return originalPrompt.call(this, rewritten, options);
 	};
 	proto[PROMPT_INTERCEPTOR_MARKER] = true;
+}
+
+/** Restore AgentSession.prototype.prompt to its unpatched form. */
+export function uninstallPromptInterceptor() {
+	const proto = AgentSession.prototype as unknown as Record<
+		PropertyKey,
+		unknown
+	>;
+	if (!proto[PROMPT_INTERCEPTOR_MARKER]) return;
+	const original = proto[PROMPT_INTERCEPTOR_ORIGINAL];
+	if (typeof original === "function") proto.prompt = original;
+	delete proto[PROMPT_INTERCEPTOR_MARKER];
+	delete proto[PROMPT_INTERCEPTOR_ORIGINAL];
+	delete proto[PROMPT_INTERCEPTOR_HANDLER];
 }

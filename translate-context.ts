@@ -5,6 +5,7 @@
  */
 import type { Context } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { randomUUID } from "node:crypto";
 
 export function buildEffectiveHeaders(
 	provider: string,
@@ -100,15 +101,49 @@ export function extractRecentContext(
 	return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
+/**
+ * A per-request tag name for the source payload.
+ *
+ * The tag used to be the literal `source_text`, so a prompt containing
+ * `</source_text>` closed the wrapper early and the rest of the input was read as
+ * part of the surrounding structure. The system prompt says "do not wrap your
+ * output in <source_text> tags", but a word in a prompt is not a structural
+ * guarantee. A random tag cannot be guessed from the input, so an injected closing
+ * tag is just text.
+ */
+export function createSourceTag(): string {
+	return `source_text_${randomUUID().replace(/-/g, "")}`;
+}
+
+function escapeForTag(value: string, tag: string): string {
+	// Defence in depth. The random tag is already unguessable from the input, but
+	// the payload must not carry a raw closing tag for *any* name we use either:
+	// `</source_text>` and friends are the legacy contract the model has seen in
+	// training, and one of them in the payload is an invitation to close the block
+	// early.
+	const names = new Set([tag, "source_text", "translation", "conversation_context"]);
+	let escaped = value;
+	for (const name of names) {
+		escaped = escaped
+			.split(`</${name}>`)
+			.join(`&lt;/${name}&gt;`)
+			.split(`<${name}>`)
+			.join(`&lt;${name}&gt;`);
+	}
+	return escaped;
+}
+
 export function createTranslationContext(
 	systemPrompt: string,
 	text: string,
 	conversationContext?: string,
+	tag: string = "source_text",
 ): Context {
+	const body = escapeForTag(text, tag);
 	const userContent =
 		conversationContext && conversationContext.trim().length > 0
-			? `<conversation_context>\n${conversationContext.trim()}\n</conversation_context>\n\n<source_text>\n${text}\n</source_text>`
-			: `<source_text>\n${text}\n</source_text>`;
+			? `<conversation_context>\n${escapeForTag(conversationContext.trim(), "conversation_context")}\n</conversation_context>\n\n<${tag}>\n${body}\n</${tag}>`
+			: `<${tag}>\n${body}\n</${tag}>`;
 
 	return {
 		systemPrompt,

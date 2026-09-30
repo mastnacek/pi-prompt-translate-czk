@@ -32,7 +32,11 @@ import {
 	styleAtWords,
 	sumSessionCostUsd,
 } from "./display.js";
-import { extractGoalObjective, installPromptInterceptor } from "./goal.js";
+import {
+	extractGoalObjective,
+	installPromptInterceptor,
+	uninstallPromptInterceptor,
+} from "./goal.js";
 import { state } from "./state.js";
 import {
 	formatCost,
@@ -43,6 +47,7 @@ import {
 import {
 	buildEffectiveHeaders,
 	cleanTranslationOutput,
+	createSourceTag,
 	createTranslationContext,
 	estimateTranslationMaxTokens,
 	extractRecentContext,
@@ -75,7 +80,13 @@ export default function (pi: ExtensionAPI) {
 				typeof w === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(w),
 		);
 		state.atWords = filteredWords;
-		const alts = filteredWords.sort((a, b) => b.length - a.length).join("|");
+		// Copy before sorting: filteredWords is the array now held by state.atWords,
+		// and sorting in place left the shared list ordered by length. Harmless to the
+		// regex (JS alternation is ordered, so that order is the one it needs) but not
+		// the order anything else reading state.atWords expects.
+		const alts = [...filteredWords]
+			.sort((a, b) => b.length - a.length)
+			.join("|");
 		if (!alts) {
 			setAtWordsRegex(null);
 			return;
@@ -156,6 +167,12 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	track(pi.on("session_start", (_event, ctx: ExtensionContext) => {
+		// Re-arm the interceptor on every session start, not just at module load.
+		// session_shutdown tears the patch down (lifecycle-clean, see
+		// extensions.md §resources), and whether the extension module is re-imported
+		// depends on the path that got us here (cancel, reload, session swap, exit).
+		// Installing on session_start is idempotent and covers all of them.
+		installPromptInterceptor();
 		state.sessionCtx = ctx;
 		state.config = extractLatestConfig(ctx);
 		rebuildFinalTranslationMap(ctx);
@@ -172,6 +189,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", () => {
 		while (unsubscribers.length > 0) unsubscribers.pop()?.();
+		// Hand the shared AgentSession.prototype back untouched before dropping the
+		// sessionCtx the interceptor closure reads. Without this the patch outlives
+		// the run that installed it and points at a cleared state.
+		uninstallPromptInterceptor();
 		state.sessionCtx = undefined;
 		state.pending = undefined;
 		state.atWords = [];
@@ -193,6 +214,7 @@ export const __test = {
 	buildEffectiveHeaders,
 	buildEnglishOnlyInstruction,
 	cleanTranslationOutput,
+	createSourceTag,
 	createTranslationContext,
 	estimateTranslationMaxTokens,
 	extractGoalObjective,

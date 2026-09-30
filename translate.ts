@@ -35,13 +35,13 @@ import {
 	PROMPT_TRANSLATE_SYSTEM_PROMPT,
 } from "./prompts";
 import { protectPromptSegments, protectFinalAnswerSegments, restoreProtectedSegments, cleanTranslationOutput, stripKeepTags } from "./translate-protect.js";
-import { buildEffectiveHeaders, createTranslationContext, isTransientError } from "./translate-context.js";
+import { buildEffectiveHeaders, createSourceTag, createTranslationContext, isTransientError } from "./translate-context.js";
 import { getText, estimateTranslationMaxTokens } from "./translate-text.js";
 
 // Re-exported so every existing importer keeps working unchanged.
 export { detectLanguageOrCode } from "./translate-language.js";
 export { protectPromptSegments, protectFinalAnswerSegments, restoreProtectedSegments, cleanTranslationOutput, stripKeepTags } from "./translate-protect.js";
-export { buildEffectiveHeaders, hasDeicticReferences, extractRecentContext, createTranslationContext } from "./translate-context.js";
+export { buildEffectiveHeaders, hasDeicticReferences, extractRecentContext, createSourceTag, createTranslationContext } from "./translate-context.js";
 export { getText, hasToolCall, withSingleText, estimateTranslationMaxTokens } from "./translate-text.js";
 
 export async function translate(
@@ -75,6 +75,11 @@ export async function translate(
 		purpose === "prompt"
 			? protectPromptSegments(text)
 			: protectFinalAnswerSegments(text);
+	// A fresh tag per request: the payload wrapper is not guessable from the input,
+	// so a `</...>` in the prompt cannot close it early. The system prompt has to
+	// name the same tag the payload uses, or the model is told to look in the wrong
+	// place (see the "answer" branch below).
+	const sourceTag = createSourceTag();
 	const systemPrompt =
 		purpose === "prompt"
 			? `${KEEP_TERM_RULE}\n${
@@ -94,16 +99,17 @@ export async function translate(
 						"Keep code, commands, flags, file paths, file names, numbers, markdown and placeholders unchanged.",
 					].join("\n")
 				: [
-					`Translate the text inside <source_text> to ${targetLanguage}. Output ONLY the translation.`,
-					"Do not wrap your output in <source_text> tags, and do not add commentary.",
-					"Keep code, paths, commands, flags, markdown, URLs, JSON, placeholders, XML-like tags, machine-readable sections, and protected tokens unchanged.",
-					"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
-				].join("\n");
+						`Translate the text inside <${sourceTag}> to ${targetLanguage}. Output ONLY the translation.`,
+						`Do not wrap your output in <${sourceTag}> tags, and do not add commentary.`,
+						"Keep code, paths, commands, flags, markdown, URLs, JSON, placeholders, XML-like tags, machine-readable sections, and protected tokens unchanged.",
+						"Never alter, translate, remove, or add content inside placeholders like __PI_PROMPT_TRANSLATE_PROTECTED_0__.",
+					].join("\n");
 
 	const llmContext = createTranslationContext(
 		systemPrompt,
 		protectedInput.text,
 		conversationContext,
+		sourceTag,
 	);
 	const thinkOn = config.translateReasoning && model.reasoning === true;
 	const sessionId = ctx.sessionManager.getSessionId();
@@ -245,7 +251,7 @@ export async function translate(
 		ctx,
 		`${purpose} translation usage: ${formatUsage(response.usage, czkRate)}`,
 	);
-	const cleanedOutput = cleanTranslationOutput(getText(response).trim());
+	const cleanedOutput = cleanTranslationOutput(getText(response).trim(), sourceTag);
 	const translatedText = stripKeepTags(
 		restoreProtectedSegments(cleanedOutput, protectedInput.segments),
 	);
@@ -268,6 +274,8 @@ export async function translate(
 		state.telemetry.promptRequests++;
 	} else if (purpose === "answer") {
 		state.telemetry.answerRequests++;
+	} else {
+		state.telemetry.toolRequests++;
 	}
 	if (model.provider === "openrouter") {
 		state.telemetry.openRouterRequests++;
@@ -277,6 +285,11 @@ export async function translate(
 	if (cacheRead > 0) {
 		state.telemetry.cachedTokens += cacheRead;
 		state.telemetry.cacheHitTurns++;
+		// Hit rate is reported over prompt+answer requests only. Tool-UI cards are
+		// one-off payloads with nothing to share a cache prefix with; counting them
+		// in the denominator made /stats drop every time `ui on` was enabled, with
+		// nothing in the output to say the denominator had changed.
+		if (purpose !== "tool") state.telemetry.promptAnswerCacheHits++;
 		const inputRate = model.cost?.input ?? 0;
 		const cacheReadRate = model.cost?.cacheRead ?? inputRate * 0.1;
 		const savedTurnUsd = cacheRead * Math.max(0, inputRate - cacheReadRate);

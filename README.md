@@ -17,13 +17,17 @@ balance readout.
    in a theme-colored box (display only, never sent to the LLM).
 
 `/goal` objectives are translated too (only the objective text; the command
-scaffold is preserved).
+scaffold is preserved). This needs a hook on `AgentSession.prototype.prompt`,
+because pi dispatches extension commands before the `input` event. The patch is
+re-pointed at the new module state on every `session_start` and removed again on
+`session_shutdown`, so it keeps working across `/reload` and session swaps
+instead of silently pointing at a dead session context.
 
 ### Code, URL & Integrity Protection
 
-- **Token Masking:** Code blocks (`` `...` `` and ```` ```...``` ````), URLs (`http(s)://`, `file://`), `@file` mentions, `?symbol` queries, and XML contexts are masked with placeholder tokens before translation and restored after.
-- **XML Context Delimitation:** Prompts are cleanly isolated in `<source_text>` XML tags so models never confuse instructions with conversational commands. Echoed wrappers are safely stripped.
-- **Placeholder Integrity Fallback:** If a model modifies or drops a placeholder token, fuzzy matching and dropped-token safety recovery ensure that code and links are never lost.
+- **Token Masking:** Code blocks (`` `...` `` and ```` ```...``` ````), URLs (`http(s)://`, `file://`), `@file` mentions, `?symbol` queries, and XML contexts are masked with placeholder tokens before translation and restored after. Assistant answers are masked for the same code-fence, inline-code and `@file` rules as prompts, so a code sample in a reply comes back byte-identical.
+- **XML Context Delimitation:** The source payload is wrapped in a **per-request** random tag (`<source_text_…>`) instead of a fixed `<source_text>`, so a `</source_text>` inside your own prompt is just text and cannot close the block early; any raw closing tag for our tag names is escaped on top of that. The system prompt names the same tag the payload uses, and echoed wrappers are safely stripped.
+- **Placeholder Integrity Fallback:** If a model modifies or drops a placeholder token, fuzzy matching and dropped-token safety recovery ensure that code and links are never lost. The fuzzy matcher replaces *every* occurrence (a model may legitimately reference the same file twice), requires a whole-token match, and tolerates only spaces/underscores — not newlines.
 - **Technical Preservation:** Prompts enforce strict negative few-shot rules against translating CLI commands (`git clone`, `npm run`, flags) and code identifiers.
 
 ## Prompt enhancement levels (`boost`)
@@ -114,7 +118,7 @@ The agent is forced to work in English, and some tools render model-authored Eng
 
 `/prompt-translate ui on` (default) hooks `tool_call` and rewrites the tool's own text arguments **before the tool runs** — so the overlay, the statusline echo and the transcript all render the same target-language card. Arguments that are enums (`effort`) are never touched, or the tool would reject its own input.
 
-All fields of one call travel in a single LLM request as `<<<n>>>`-marked blocks; a marker the model drops leaves that field in English rather than half-translated. Any failure keeps the English card and logs to debug — a broken translation must never block the tool.
+All fields of one call travel in a single LLM request as `<<<n>>>`-marked blocks, and the contract is **all-or-nothing**: the model must return exactly the markers `<<<0>>>` … `<<<n-1>>>`, each once, in order, each with a non-empty translation. A dropped *or shifted* marker (a model counting from 1 is the common case) leaves the **whole card in English** rather than writing translations into the wrong fields — a shifted set would otherwise render the impact line under the title. Any failure keeps the English card and logs to debug — a broken translation must never block the tool.
 
 ```
 /prompt-translate ui off        English cards, no extra translation call

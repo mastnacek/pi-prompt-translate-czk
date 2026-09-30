@@ -190,6 +190,22 @@ export function protectFinalAnswerSegments(text: string): ProtectedText {
 			shouldProtectTagName(tagName) ? addSegment(match) : match,
 	);
 
+	// Protect multi-line markdown code blocks and inline code.
+	// Same two rules the prompt path uses. Without them a ```ts sample in an
+	// answer goes to the translator unprotected and comes back with renamed
+	// identifiers or broken syntax — the prompt path has always guarded these.
+	protectedText = protectedText.replace(/```[\s\S]*?```/g, (match) =>
+		addSegment(match),
+	);
+	protectedText = protectedText.replace(/`[^`\n]+`/g, (match) =>
+		addSegment(match),
+	);
+
+	// Protect standard @ file mentions (@src/file.ts, @"quoted file.ts").
+	protectedText = protectedText.replace(/@"[^"\n]+"|@[\w][\w./-]*/g, (match) =>
+		addSegment(match),
+	);
+
 	// Protect web URLs, git URLs, and file URLs
 	protectedText = protectedText.replace(
 		/(?:https?|git\+https?|ftp|file):\/\/[^\s<>)"]+?(?=[.,;:!?]*(?:\s|[<>)"]|$))/g,
@@ -234,13 +250,26 @@ export function restoreProtectedSegments(
 		if (restored.includes(segment.placeholder)) {
 			restored = restored.split(segment.placeholder).join(segment.value);
 		} else {
-			// Fallback: handle slight model formatting mutations (e.g. missing underscores or spaces)
+			// Fallback: handle slight model formatting mutations (missing underscores
+			// or spaces, different casing). Global, because the model repeating one
+			// placeholder is legitimate (it references the same file twice) and
+			// restoring only the first would hand the agent a literal
+			// __PI_PROMPT_TRANSLATE_PROTECTED_0__ in its own answer. The exact-match
+			// branch above already replaces every occurrence; this branch must not be
+			// the weaker one.
+			//
+			// Anchored and space-only: the pattern has to match the whole placeholder
+			// token. An unanchored `\s` also spans newlines, so a dropped underscore
+			// used to match placeholder text split across two lines.
 			const fuzzyRegex = new RegExp(
-				segment.placeholder.replace(/_/g, "[_\\s]?"),
-				"i",
+				`(^|[^A-Za-z0-9_])${segment.placeholder.replace(
+					/_/g,
+					"[_ ]?",
+				)}(?![A-Za-z0-9_])`,
+				"gi",
 			);
 			if (fuzzyRegex.test(restored)) {
-				restored = restored.replace(fuzzyRegex, segment.value);
+				restored = restored.replace(fuzzyRegex, `$1${segment.value}`);
 			} else {
 				// Safety recovery: if the placeholder was completely dropped by the model,
 				// append the protected payload to ensure critical code, links, or files are not lost.
@@ -260,17 +289,38 @@ export function stripKeepTags(text: string): string {
 	return text.replace(/<\/?keep>/g, "");
 }
 
-export function cleanTranslationOutput(text: string): string {
+export function cleanTranslationOutput(
+	text: string,
+	tag: string = "source_text",
+): string {
 	let cleaned = text.trim();
+	// Strip the wrapper this request actually used (a random per-request tag), and
+	// keep the literal names as a fallback for models that echo the old contract.
+	const tagAlternatives = [
+		tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+		"(?:source_text|translation)",
+	].join("|");
 	const tagMatch = cleaned.match(
-		/^<(?:source_text|translation)>\s*([\s\S]*?)\s*<\/(?:source_text|translation)>$/i,
+		new RegExp(
+			`^<(${tagAlternatives})>\\s*([\\s\\S]*?)\\s*<\\/\\1>$`,
+			"i",
+		),
 	);
 	if (tagMatch) {
-		cleaned = tagMatch[1].trim();
+		cleaned = tagMatch[2].trim();
 	}
 	// Strip accidental echoing of conversation_context if any
 	cleaned = cleaned
 		.replace(/<conversation_context>[\s\S]*?<\/conversation_context>/gi, "")
 		.trim();
+	// Belt and braces: if a per-request tag survives anywhere in the output (the
+	// model echoing our scaffolding mid-answer), drop it rather than show the user
+	// the internal tag name.
+	if (tag !== "source_text") {
+		const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		cleaned = cleaned
+			.replace(new RegExp(`</?${escaped}>`, "gi"), "")
+			.trim();
+	}
 	return cleaned;
 }

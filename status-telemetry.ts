@@ -121,9 +121,15 @@ export async function formatTelemetryOverview(
 	const tel = state.telemetry;
 	const effectiveModel = getEffectiveTranslateModel();
 	const czkRate = await getUsdToCzkRate(ctx.signal);
+	// Hit rate is over prompt+answer requests only. The old denominator was
+	// totalRequests, which silently includes tool-UI card translations — so turning
+	// `/prompt-translate ui on` lowered the reported rate without anything about the
+	// prompt/answer cache having changed. Tool requests are now listed on their own
+	// line instead of being folded in invisibly.
+	const cacheableRequests = tel.promptRequests + tel.answerRequests;
 	const hitRate =
-		tel.totalRequests > 0
-			? ((tel.cacheHitTurns / tel.totalRequests) * 100).toFixed(1)
+		cacheableRequests > 0
+			? ((tel.promptAnswerCacheHits / cacheableRequests) * 100).toFixed(1)
 			: "0.0";
 	const costCzk =
 		typeof czkRate === "number" && czkRate > 0
@@ -151,10 +157,10 @@ export async function formatTelemetryOverview(
 		`  • History Context:  ${state.config.historyMode}`,
 		`  • App Attribution:  Pi Prompt Translate`,
 		`  • Sticky Routing:   ${tel.openRouterRequests > 0 ? "Active (x-session-id pinned)" : "Ready"}`,
-		`  • Total Requests:   ${tel.totalRequests} (${tel.promptRequests} prompts, ${tel.answerRequests} answers)`,
+		`  • Total Requests:   ${tel.totalRequests} (${tel.promptRequests} prompts, ${tel.answerRequests} answers, ${tel.toolRequests} tool-UI)`,
 		"",
 		"⚡ Prompt Caching & Performance",
-		`  • Cache Hit Rate:   ${hitRate}% (${tel.cacheHitTurns} of ${tel.totalRequests} turns hit cache)`,
+		`  • Cache Hit Rate:   ${hitRate}% (${tel.promptAnswerCacheHits} of ${cacheableRequests} prompt+answer requests hit cache)`,
 		`  • Tokens from Cache: ${tel.cachedTokens.toLocaleString("en-US")} tokens read`,
 		`  • Cache Writes:     ${tel.cacheWriteTokens.toLocaleString("en-US")} tokens written`,
 		"",

@@ -16,10 +16,18 @@ export interface TelemetryStats {
 	totalRequests: number;
 	promptRequests: number;
 	answerRequests: number;
+	/** Tool-UI card translations. Counted separately because they are not turns:
+	 *  they share the cache with nothing and would otherwise drag the hit rate down
+	 *  for reasons that have nothing to do with prompt/answer caching. */
+	toolRequests: number;
 	openRouterRequests: number;
 	cachedTokens: number;
 	cacheWriteTokens: number;
+	/** Requests that read from cache, across all purposes. */
 	cacheHitTurns: number;
+	/** Cache hits among prompt+answer requests only — the denominator of the hit
+	 *  rate shown in /stats. Tool-UI requests are excluded on both sides. */
+	promptAnswerCacheHits: number;
 	savedCostUsd: number;
 }
 
@@ -45,14 +53,12 @@ export const state = {
 		totalRequests: 0,
 		promptRequests: 0,
 		answerRequests: 0,
+		toolRequests: 0,
 		openRouterRequests: 0,
 		cachedTokens: 0,
 		cacheWriteTokens: 0,
 		cacheHitTurns: 0,
+		promptAnswerCacheHits: 0,
 		savedCostUsd: 0,
 	} as TelemetryStats,
 };
-
-export function resetPending(): void {
-	state.pending = undefined;
-}

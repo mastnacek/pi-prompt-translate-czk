@@ -53,25 +53,44 @@ describe("block round trip", () => {
 		expect(block).toContain("<<<5>>>\nTranslate the result instead");
 
 		const parsed = parseBlocks(
-			"Here you go:\n<<<0>>>\nPřeložit kartu quick win\n<<<1>>>\nUživatel vidí kartu česky\n",
+			"Here you go:\n<<<0>>>\nPřeložit kartu quick win\n<<<1>>>\nUživatel vidí kartu česky\n<<<2>>>\nA\n<<<3>>>\nB\n<<<4>>>\nC\n<<<5>>>\nD\n",
 			6,
 		);
-		expect(parsed[0]).toBe("Přeložit kartu quick win");
-		expect(parsed[1]).toBe("Uživatel vidí kartu česky");
-		expect(parsed[2]).toBeUndefined();
+		expect(parsed?.[0]).toBe("Přeložit kartu quick win");
+		expect(parsed?.[1]).toBe("Uživatel vidí kartu česky");
+		expect(parsed?.[2]).toBe("A");
 	});
 
-	it("reports a missing block as undefined instead of guessing", () => {
-		const parsed = parseBlocks("<<<0>>>\nprvní", 3);
-		expect(parsed[0]).toBe("první");
-		expect(parsed[1]).toBeUndefined();
-		expect(parsed[2]).toBeUndefined();
+	it("rejects a block set with a missing marker instead of guessing", () => {
+		// Partial output used to be returned with holes the caller could apply; the
+		// contract is all-or-nothing, so a short answer leaves the card English.
+		expect(parseBlocks("<<<0>>>\nprvní", 3)).toBeNull();
+	});
+
+	it("rejects numbering that starts at 1 (off-by-one marker)", () => {
+		// The dangerous failure: N blocks, every one in the wrong field. The card
+		// would show the impact line under the title and leave one field English.
+		expect(
+			parseBlocks("<<<1>>>\na\n<<<2>>>\nb\n", 2),
+		).toBeNull();
+		expect(
+			parseBlocks("<<<0>>>\na\n<<<2>>>\nb\n", 2),
+		).toBeNull();
+	});
+
+	it("rejects duplicated and out-of-order markers", () => {
+		expect(parseBlocks("<<<0>>>\na\n<<<0>>>\nb\n", 2)).toBeNull();
+		expect(parseBlocks("<<<1>>>\na\n<<<0>>>\nb\n", 2)).toBeNull();
+	});
+
+	it("rejects an empty block that would overwrite real card text", () => {
+		expect(parseBlocks("<<<0>>>\n   \n<<<1>>>\nb\n", 2)).toBeNull();
 	});
 
 	it("keeps multi-line translations inside their block", () => {
 		const parsed = parseBlocks("<<<0>>>\nprvní řádek\ndruhý řádek\n<<<1>>>\nx", 2);
-		expect(parsed[0]).toBe("první řádek\ndruhý řádek");
-		expect(parsed[1]).toBe("x");
+		expect(parsed?.[0]).toBe("první řádek\ndruhý řádek");
+		expect(parsed?.[1]).toBe("x");
 	});
 });
 

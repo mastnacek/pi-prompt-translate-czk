@@ -1,53 +1,53 @@
 {
-  "name": "pi-prompt-translate-czk",
-  "version": "0.7.0",
-  "description": "Pi package that translates user prompts to English and translates final assistant replies back to a configured language. Fork with CZK balance/rate status, global config, and pi-at-words integration.",
-  "type": "module",
-  "license": "MIT",
-  "author": "05kim",
-  "contributors": [
-    "mastnacek"
-  ],
-  "homepage": "https://github.com/mastnacek/pi-prompt-translate-czk#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/mastnacek/pi-prompt-translate-czk.git"
-  },
-  "bugs": {
-    "url": "https://github.com/mastnacek/pi-prompt-translate-czk/issues"
-  },
-  "keywords": [
-    "pi-package",
-    "pi",
-    "translation",
-    "prompt"
-  ],
-  "files": [
-    "README*.md",
-    "LICENSE",
-    "*.ts",
-    "package.json"
-  ],
-  "scripts": {
-    "check": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ]
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-agent-core": "*",
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "*"
-  },
-  "devDependencies": {
-    "@earendil-works/pi-ai": "^0.99.1",
-    "@earendil-works/pi-coding-agent": "^0.99.1",
-    "typescript": "^5.8.3",
-    "vitest": "^3.2.6"
-  }
+	"name": "pi-prompt-translate-czk",
+	"version": "0.7.0",
+	"description": "Pi package that translates user prompts to English and translates final assistant replies back to a configured language. Fork with CZK balance/rate status, global config, and pi-at-words integration.",
+	"type": "module",
+	"license": "MIT",
+	"author": "05kim",
+	"contributors": [
+		"mastnacek"
+	],
+	"homepage": "https://github.com/mastnacek/pi-prompt-translate-czk#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/mastnacek/pi-prompt-translate-czk.git"
+	},
+	"bugs": {
+		"url": "https://github.com/mastnacek/pi-prompt-translate-czk/issues"
+	},
+	"keywords": [
+		"pi-package",
+		"pi",
+		"translation",
+		"prompt"
+	],
+	"files": [
+		"index.ts",
+		"src/",
+		"README*.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"check": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-agent-core": "*",
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-ai": "^0.99.1",
+		"@earendil-works/pi-coding-agent": "^0.99.1",
+		"typescript": "^5.8.3",
+		"vitest": "^3.2.6"
+	}
 }

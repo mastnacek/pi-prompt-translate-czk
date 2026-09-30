@@ -1,68 +1,35 @@
-// index.ts — extension wiring: event handlers, /prompt-translate command,
-// entry renderers. Logic lives in the sibling modules.
+// index.ts — the composition root.
+//
+// Wiring only: publish the status renderer, arm the /goal patch, register the
+// four slices, and drain every subscription on shutdown. All behaviour lives in
+// src/slices/*; all shared contracts live in src/shared/*.
+//
+// Wire order matters in one place only: the status sink is published first,
+// because session_start asks the footer to paint itself and the sink is the
+// kernel-side seam the rest of the plugin repaints through.
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { extractLatestConfig } from "./src/shared/config.js";
+import { rebuildFinalTranslationMap, setAtWordsRegex, sumSessionCostUsd } from "./src/shared/display.js";
+import { state } from "./src/shared/state.js";
+import { refreshBalanceStatus, updateTranslateStatus } from "./src/shared/status-bus.js";
 import {
-	extractLatestConfig,
-	normalizeConfig,
-	normalizeLanguage,
-	parseModelSetting,
-} from "./config.js";
-import {
-	CONFIG_ENTRY_TYPE,
-	DEFAULT_CONFIG,
-	FINAL_TRANSLATION_ENTRY_TYPE,
-	STATE_ENTRY_TYPE,
-	type BoostLevel,
-	type TranslateConfig,
-	type TranslationUsage,
-} from "./types.js";
-import {
-	ENGLISH_ONLY_AGENT_INSTRUCTION,
-	appendEnglishOnlyInstruction,
-	buildEnglishOnlyInstruction,
-} from "./prompts.js";
-import {
-	AT_WORDS_MENTION_SRC,
-	rebuildFinalTranslationMap,
-	rememberFinalTranslation,
-	replaceDisplayedAssistantTextWithEnglish,
-	setAtWordsRegex,
-	styleAtWords,
-	sumSessionCostUsd,
-} from "./display.js";
-import {
-	extractGoalObjective,
 	installPromptInterceptor,
 	uninstallPromptInterceptor,
-} from "./goal.js";
-import { state } from "./state.js";
-import {
-	formatCost,
-	formatTelemetryOverview,
-	refreshBalanceStatus,
-	updateTranslateStatus,
-} from "./status.js";
-import {
-	buildEffectiveHeaders,
-	cleanTranslationOutput,
-	createSourceTag,
-	createTranslationContext,
-	estimateTranslationMaxTokens,
-	extractRecentContext,
-	getText,
-	hasDeicticReferences,
-	hasToolCall,
-	protectFinalAnswerSegments,
-	restoreProtectedSegments,
-	withSingleText,
-} from "./translate.js";
-import { registerTranslateCommand } from "./command.js";
-import { registerAgentHooks } from "./agent-hooks.js";
-import { registerToolUiHooks } from "./translate-tool-ui.js";
+} from "./src/slices/goal/index.js";
+import { registerPipeline } from "./src/slices/pipeline/index.js";
+import { registerStatusSlice } from "./src/slices/status/index.js";
+import { registerTranslateCommand } from "./src/slices/commands/index.js";
 
 export default function (pi: ExtensionAPI) {
+	// A subagent or child session loads every global extension; the translation
+	// pipeline must not run inside a delegated run.
+	if (process.env.PI_SUBAGENT === "true" || process.env.PI_CHILD_SESSION)
+		return;
+
 	const unsubscribers: Array<() => void> = [];
 
 	const track = (result: unknown): void => {
@@ -70,174 +37,52 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	state.piApi = pi;
+
+	registerStatusSlice();
 	installPromptInterceptor();
-
-	pi.events.on("at-words:words-updated", (data: unknown) => {
-		const words = (data as { words?: unknown } | undefined)?.words;
-		if (!Array.isArray(words)) return;
-		const filteredWords = words.filter(
-			(w): w is string =>
-				typeof w === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(w),
-		);
-		state.atWords = filteredWords;
-		// Copy before sorting: filteredWords is the array now held by state.atWords,
-		// and sorting in place left the shared list ordered by length. Harmless to the
-		// regex (JS alternation is ordered, so that order is the one it needs) but not
-		// the order anything else reading state.atWords expects.
-		const alts = [...filteredWords]
-			.sort((a, b) => b.length - a.length)
-			.join("|");
-		if (!alts) {
-			setAtWordsRegex(null);
-			return;
-		}
-		setAtWordsRegex(
-			new RegExp(
-				`(?:${AT_WORDS_MENTION_SRC})|(?<![A-Za-z0-9_])(?:${alts})(?![A-Za-z0-9_])`,
-				"g",
-			),
-		);
-	});
-
-	pi.registerEntryRenderer<{
-		source?: string;
-		english?: string;
-		boost?: BoostLevel;
-		usage?: TranslationUsage;
-		costUsd?: number;
-		costCzk?: number;
-		conversationContext?: string;
-	}>(STATE_ENTRY_TYPE, (entry, _options, theme) => {
-		const source = entry.data?.source;
-		if (typeof source !== "string" || !source.trim()) return undefined;
-
-		if (state.config.diff) {
-			const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
-			const boostBadge =
-				entry.data?.boost && entry.data.boost !== "off"
-					? ` [boost: ${entry.data.boost}]`
-					: "";
-			const historyBadge = entry.data?.conversationContext
-				? " [history: attached]"
-				: "";
-			const usage = entry.data?.usage;
-			const tokStr =
-				usage?.totalTokens === undefined
-					? ""
-					: ` · ${usage.totalTokens} tok (in: ${usage.input}, out: ${usage.output})`;
-			const costStr =
-				entry.data?.costUsd === undefined
-					? ""
-					: ` · ${formatCost(entry.data.costUsd, entry.data.costCzk)}`;
-
-			const header =
-				theme.fg(
-					"accent",
-					`🔄 Prompt Translation Diff${boostBadge}${historyBadge}`,
-				) + theme.fg("dim", `${tokStr}${costStr}`);
-
-			const originalSection = `${theme.fg("customMessageLabel", "Original (CZ):")}\n${theme.fg("customMessageText", styleAtWords(source))}`;
-			const englishSection =
-				entry.data?.english && entry.data.english.trim() !== source.trim()
-					? `\n\n${theme.fg("customMessageLabel", "Enhanced (EN):")}\n${theme.fg("customMessageText", entry.data.english)}`
-					: "";
-			const historySection = entry.data?.conversationContext
-				? `\n\n${theme.fg("customMessageLabel", "Attached History Context:")}\n${theme.fg("dim", entry.data.conversationContext)}`
-				: "";
-
-			box.addChild(
-				new Text(
-					`${header}\n\n${originalSection}${englishSection}${historySection}`,
-				),
-			);
-			return box;
-		}
-
-		if (!state.config.showOriginal) return undefined;
-		const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
-		const historyBadge = entry.data?.conversationContext
-			? ` ${theme.fg("dim", "[with history]")}`
-			: "";
-		box.addChild(
-			new Text(
-				`${theme.fg("customMessageLabel", "original:")}${historyBadge}\n${theme.fg("customMessageText", styleAtWords(source))}`,
-			),
-		);
-		return box;
-	});
-
-	track(pi.on("session_start", (_event, ctx: ExtensionContext) => {
-		// Re-arm the interceptor on every session start, not just at module load.
-		// session_shutdown tears the patch down (lifecycle-clean, see
-		// extensions.md §resources), and whether the extension module is re-imported
-		// depends on the path that got us here (cancel, reload, session swap, exit).
-		// Installing on session_start is idempotent and covers all of them.
-		installPromptInterceptor();
-		state.sessionCtx = ctx;
-		state.config = extractLatestConfig(ctx);
-		rebuildFinalTranslationMap(ctx);
-		state.sessionCostUsd = sumSessionCostUsd(ctx);
-		if (ctx.hasUI) {
-			ctx.ui.notify(
-				`pi-prompt-translate input ${state.config.enabled ? "on" : "off"}, responses ${state.config.translateResponses ? "on" : "off"} (target: ${state.config.targetLanguage}, model: ${state.config.translateModel})`,
-				"info",
-			);
-		}
-		refreshBalanceStatus(ctx);
-		updateTranslateStatus(ctx);
-	}));
-
-	pi.on("session_shutdown", () => {
-		while (unsubscribers.length > 0) unsubscribers.pop()?.();
-		// Hand the shared AgentSession.prototype back untouched before dropping the
-		// sessionCtx the interceptor closure reads. Without this the patch outlives
-		// the run that installed it and points at a cleared state.
-		uninstallPromptInterceptor();
-		state.sessionCtx = undefined;
-		state.pending = undefined;
-		state.atWords = [];
-		setAtWordsRegex(null);
-	});
-
 	registerTranslateCommand(pi);
-	registerAgentHooks(pi, track);
-	registerToolUiHooks(pi, track);
-}
+	registerPipeline(pi, track);
 
-export const __test = {
-	CONFIG_ENTRY_TYPE,
-	FINAL_TRANSLATION_ENTRY_TYPE,
-	STATE_ENTRY_TYPE,
-	DEFAULT_CONFIG,
-	ENGLISH_ONLY_AGENT_INSTRUCTION,
-	appendEnglishOnlyInstruction,
-	buildEffectiveHeaders,
-	buildEnglishOnlyInstruction,
-	cleanTranslationOutput,
-	createSourceTag,
-	createTranslationContext,
-	estimateTranslationMaxTokens,
-	extractGoalObjective,
-	extractLatestConfig,
-	extractRecentContext,
-	formatTelemetryOverview,
-	getText,
-	hasDeicticReferences,
-	hasToolCall,
-	normalizeConfig,
-	normalizeLanguage,
-	parseModelSetting,
-	protectFinalAnswerSegments,
-	rebuildFinalTranslationMap,
-	rememberFinalTranslation,
-	replaceDisplayedAssistantTextWithEnglish,
-	resetState() {
-		state.config = { ...DEFAULT_CONFIG };
-		state.pending = undefined;
-	},
-	restoreProtectedSegments,
-	setConfig(next: TranslateConfig) {
-		state.config = { ...next };
-	},
-	withSingleText,
-};
+	// Both lifecycle handlers are tracked. session_shutdown is the drainer, so its
+	// own unsubscribe is not strictly needed, but registering it keeps the shutdown
+	// path symmetric and satisfies the leak invariant (every pi.on() needs a
+	// reachable unsubscribe); the engine drops that listener on the way out anyway.
+	track(
+		pi.on("session_start", (_event, ctx: ExtensionContext) => {
+			// Re-arm the interceptor on every session start, not just at module load.
+			// session_shutdown tears the patch down (lifecycle-clean, see
+			// extensions.md §resources), and whether the extension module is
+			// re-imported depends on the path that got us here (cancel, reload,
+			// session swap, exit). Installing on session_start is idempotent.
+			installPromptInterceptor();
+			state.sessionCtx = ctx;
+			state.config = extractLatestConfig(ctx);
+			rebuildFinalTranslationMap(ctx);
+			state.sessionCostUsd = sumSessionCostUsd(ctx);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`pi-prompt-translate input ${state.config.enabled ? "on" : "off"}, responses ${state.config.translateResponses ? "on" : "off"} (target: ${state.config.targetLanguage}, model: ${state.config.translateModel})`,
+					"info",
+				);
+			}
+			refreshBalanceStatus(ctx);
+			updateTranslateStatus(ctx);
+		}),
+	);
+
+	// session_shutdown is the drainer itself: every path that ends a run converges
+	// here (cancel, reload, session swap, exit).
+	track(
+		pi.on("session_shutdown", () => {
+			while (unsubscribers.length > 0) unsubscribers.pop()?.();
+			// Hand the shared AgentSession.prototype back untouched before dropping
+			// the sessionCtx the interceptor closure reads. Without this the patch
+			// outlives the run that installed it and points at a cleared state.
+			uninstallPromptInterceptor();
+			state.sessionCtx = undefined;
+			state.pending = undefined;
+			state.atWords = [];
+			setAtWordsRegex(null);
+		}),
+	);
+}

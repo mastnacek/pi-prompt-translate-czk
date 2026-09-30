@@ -195,6 +195,19 @@ restores the defaults:
 - `:batch` model variants on OpenRouter are ~50% cheaper and fine for
   translation latency.
 
+## Development
+
+Vertical slice architecture: a thin `index.ts` composition root, a `src/shared/`
+kernel, and `src/slices/{pipeline,goal,status,commands}/` features. Slices never
+import each other — anything two of them need moves into `src/shared/`. The full
+map and the invariants are in [AGENTS.md](AGENTS.md).
+
+```bash
+npm install     # devDeps are pinned to the engine minor line you run
+npm run check   # tsc --noEmit (no machine-specific paths in tsconfig)
+npm test        # vitest, 51 tests
+```
+
 ## Credits
 
 Fork of [05kim/pi-prompt-translate](https://github.com/05kim/pi-prompt-translate) (MIT).

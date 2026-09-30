@@ -9,6 +9,27 @@ Runtime engine: pi 0.99.1.
 
 ---
 
+## Stav oprav
+
+Všechny nálezy 1–8 jsou opravené v commitu `1a2412f` (vetev `fix/review-findings`).
+Stav: **51 testů prochází, `tsc --noEmit` čistý** (proti engine 0.99.1).
+Každý nález má níže řádek **Stav:** s odkazem na konkrétní změnu.
+
+---
+
+## 1. `/goal` se po `/reload` přestane překládat — bez jakékoli hlášky
+
+**Vážnost: major**
+
+**Stav: ✅ opraveno** — `goal.ts`: marker už není early-return brána. Handler se
+zapisuje do `PROMPT_INTERCEPTOR_HANDLER` při každém načtení (wrapper na prototypu
+čte symbol pokaždé, takže po `/reload` volá aktuální `state`), rozbalování jde
+vždy z `PROMPT_INTERCEPTOR_ORIGINAL`, aby nevznikl re-wrap re-wrapu. Nově
+`uninstallPromptInterceptor()` vrací `proto.prompt` do původního stavu;
+`index.ts` instaluje na `session_start` a odstraňuje v `session_shutdown`.
+
+---
+
 ## 1. `/goal` se po `/reload` přestane překládat — bez jakékoli hlášky
 
 **Vážnost: major**
@@ -84,6 +105,11 @@ event (viz komentář v `goal.ts:3-9` — pi dispatchuje extension commandy pře
 
 **Vážnost: major**
 
+**Stav: ✅ opraveno** — `parseBlocks` vrací `null`, pokud sada markerů není
+přesně `0..count-1`, každý jednou, v pořadí a neprázdný (duplicitní i mimo
+pořadí se odmítnou taky). `registerToolUiHooks` na `null` nechá celou kartu
+v angličtině a jen zapíše debug, místo aby aplikoval pole, která zrovna sedí.
+
 ### Kde
 
 `translate-tool-ui.ts:79-104` (`parseBlocks`) a `107-128` (`applyTranslations`).
@@ -158,6 +184,11 @@ když je úplný — jinak nechat celou kartu v angličtině, místo aby se apli
 
 **Vážnost: minor (kosmetický, ale viditelný)**
 
+**Stav: ✅ opraveno** — `protectFinalAnswerSegments` dostal pravidla 3 a 5
+(promptu): ``` fence(y), inline `` kód a `@file` mentiony. Fence se řeší před
+mentiony, aby se placeholdery nevnořovaly. `README.md` to popisuje v sekci
+„Code, URL & Integrity Protection".
+
 ### Kde
 
 `translate-protect.ts:173-226` (`protectFinalAnswerSegments`).
@@ -202,6 +233,12 @@ záměr v README.
 ## 4. Opakovaný placeholder se obnoví jen napoprvé
 
 **Vážnost: minor**
+
+**Stav: ✅ opraveno (i vedlejší nález)** — fuzzy větev má `g` flag a nahrazuje
+všechy výskyty.Vzor je navíc ukotvený (`(^|[^A-Za-z0-9_])…(?![A-Za-z0-9_])`) a
+toleruje jen mezeru/underscore místo `_`: původní `\s` překlenoval i nový řádek,
+takže se placeholder "rozlomil" přes dva řádky. Náhrada `$1<value>` zachová
+předcházející znak.
 
 ### Kde
 
@@ -263,6 +300,13 @@ restored = restored.replace(new RegExp(fuzzyRegex.source, "gi"), segment.value);
 
 **Vážnost: minor (vědomé rozhodnutí, ne zranitelnost)**
 
+**Stav: ✅ opraveno** — `translate-context.ts`: `createSourceTag()` generuje
+tag per request (`source_text_<uuid>`), system prompt jmenovkuje stejný tag
+jako payload a `cleanTranslationOutput` ho stripuje. Navíc `escapeForTag()`
+escapuje hrubé `</…>` pro všechna naše jména tagů (i ta legacy), takže payload
+neobsahuje žádný živý closer. Doporučení „vědomé omezení" už není potřeba —
+README popisuje random tag.
+
 ### Kde
 
 `translate-context.ts:103-124` (`createTranslationContext`):
@@ -300,6 +344,11 @@ Pokud to zůstane, stojí za to zmínit v README jako vědomé omezení.
 ## 6. `cache hit rate` dělí nesouvisející hodnoty
 
 **Vážnost: minor**
+
+**Stav: ✅ opraveno** — telemetrie má `toolRequests` a `promptAnswerCacheHits`.
+Hit rate se počítá z `promptAnswerCacheHits / (promptRequests + answerRequests)`
+a `/stats` to píše doslova („N of M prompt+answer requests hit cache");
+tool-UI requesty mají vlastní řádek v `Total Requests`.
 
 ### Kde
 
@@ -340,6 +389,11 @@ nebo do telemetrie přidat `toolRequests` a jmenovat to v `/stats` upřímně.
 
 ## 7. Drobnosti
 
+**Stav: ✅ opraveno** — `saveConfig` protahuje `cfg` i v global módu
+(`saveGlobalConfig(cfg)` s defaultem), `index.ts` řadí kopii (`[...filteredWords].sort`),
+nepoužitá `resetPending()` je smazána. `completions.ts`, `command-toggles.ts`,
+`languages.ts`, `status-palette.ts`, `prompts.ts` — beze změny, bez nálezů.
+
 - **`config.ts:151-161`** — `saveConfig(cfg, isGlobal, cwd)` v global módu
   parametr `cfg` úplně ignoruje a píše `state.config`. Jediný dnešní
   volající (`command.ts:25`) předává právě `state.config`, takže je to
@@ -358,6 +412,10 @@ nebo do telemetrie přidat `toolRequests` a jmenovat to v `/stats` upřímně.
 ## 8. Mimo repo: devDeps pinují zastaralý engine
 
 **Vážnost: minor, ale slepá zóna**
+
+**Stav: ✅ opraveno** — devDeps zvednuty na `^0.99.1` (`pi-ai` i
+`pi-coding-agent`), `node_modules` má 0.99.1 a `tsc --noEmit` je proti nim
+čistý. Přidáno `.github/workflows/check.yml` (`npm ci && npm run check && npm test`).
 
 Tohle je už zaznamenané v `docs/2026-09-29-translation-probe.md`
 (sekce „Repo finding: devDeps pin a stale engine"), pořád platí.
@@ -391,6 +449,20 @@ přidat `pi test` do CI proti aktuální verzi.
 
 ## Poznámky k testovací sadě
 
+**Stav: ✅ doplněno** — 38 → 51 testů. Chybějící scénáře jsou pokryté:
+
+- **reload test** — nový `goal-interceptor.test.ts` (5 testů: idempotence,
+  re-point na state po `/reload`, uninstall, hod od starého handleru)
+- **tool-UI index offset** — `translate-tool-ui.test.ts`: numbering od 1,
+  vynechaný marker, duplicitní i mimo pořadí, prázdný blok
+- **opakovaný placeholder ve fuzzy větvi** — exact i fuzzy větev, dvě
+  occurrences; navíc test, že fuzzy nebere přes řádek ani uvnitř slova
+- **`protectFinalAnswerSegments` s kódovým blokem** — fence, inline kód,
+  `@file`, plus kontrola, že prostý text odpovědi maskovaný není
+- **per-request tag** — `</source_text>` v payloadu se escapuje a čistič
+  stripuje tag, který dostal
+
+Původní text:
 38 testů prochází. Testy jsou celkem kvalitní — `translate-protection.test.ts`
 pokrývá i failure módy (drop, duplikát, překlep placeholderu), ne jen happy
 path. Chybí ale:

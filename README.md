@@ -200,7 +200,10 @@ restores the defaults:
 Vertical slice architecture: a thin `index.ts` composition root, a `src/shared/`
 kernel, and `src/slices/{pipeline,goal,status,commands}/` features. Slices never
 import each other — anything two of them need moves into `src/shared/`. The full
-map and the invariants are in [AGENTS.md](AGENTS.md).
+map and the invariants are in [AGENTS.md](AGENTS.md). There is deliberately no
+string table: `/prompt-translate lang` sets the *target* language of the
+translation, not a UI locale, and the operator-facing copy stays Czech next to the
+English text the model reads.
 
 ```bash
 npm install     # devDeps are pinned to the engine minor line you run

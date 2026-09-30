@@ -74,6 +74,32 @@ npm run check && npm test                          # typecheck + 51 tests
 from `node_modules`, so a checkout on any machine type-checks. Do not reintroduce
 machine-specific absolute paths.
 
+## Deliberate deviations from the Pi plugin skill
+
+- **No string table / `i18n.ts`; user-facing text stays as it is.** The
+  `multilingual-ui` invariant from `pi-plugin-dev` is intentionally not adopted.
+  Two reasons, one of them structural:
+
+  1. `/prompt-translate lang <language>` already exists and means *the target
+     language of the translation*, not the UI locale. A `lang` config key holding
+     a UI locale would collide with the command the operator already uses, and
+     resolving that would mean renaming a shipped subcommand.
+  2. The UI is deliberately bilingual-by-context, not localized: Czech operator
+     copy (`"Odeslat tento překlad agentovi?"`, `" (uloženo globálně)"`) alongside
+     English output that the model reads. The `cs`/`en` table in the skill's
+     scaffold assumes the UI has one locale at a time.
+
+  Consequence for contributors: adding a new user-visible string means writing it
+  as the neighbouring strings are written, not routing it through a table. If a
+  full localization ever becomes a requirement, it is a separate decision that
+  must first rename the existing `lang` subcommand.
+
+- **Three files sit over the 300-line soft target and stay that way**
+  (`src/shared/translate/protect.ts` 326, `src/slices/commands/complete.ts` 312,
+  `src/shared/translate/language.ts` 308). Each is a single-concept rule
+  catalogue; splitting it by length rather than by concept is the anti-pattern the
+  VSA reference rejects. The 400-line hard limit is enforced in the tests.
+
 ## Language of the code
 
 User-visible text is Czech/English mixed by design — this fork targets a Czech

@@ -83,6 +83,12 @@ export type TranslationResult = {
 	usage: TranslationUsage;
 	costUsd?: number;
 	costCzk?: number;
+	/**
+	 * True when translation could not run and `text` is the untouched original.
+	 * Callers must treat a degraded result as 'no translation happened': sending
+	 * the text through again would translate it twice.
+	 */
+	degraded?: boolean;
 };
 
 export type ProtectedSegment = {

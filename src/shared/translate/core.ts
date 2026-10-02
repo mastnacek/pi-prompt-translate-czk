@@ -59,6 +59,40 @@ export async function translate(
 		purpose === "prompt"
 			? protectPromptSegments(text)
 			: protectFinalAnswerSegments(text);
+
+	/**
+	 * Fail closed on placeholders, fail open on the model.
+	 *
+	 * The segments live only in this function, so the masked text cannot escape
+	 * here — but throwing would leave the caller's fallback path holding nothing
+	 * to restore. Returning the ORIGINAL, unmasked text means the two exits from
+	 * this function are the only ones: a restored translation, or clean input.
+	 * Never the masked input.
+	 */
+	const degrade = (reason: string): TranslationResult => {
+		debug(ctx, `${reason} — passing the original text through untranslated`);
+		if (ctx.hasUI) {
+			ctx.ui.notify(`prompt-translate: ${reason}`, "warning");
+		}
+		return {
+			text,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: 0,
+				},
+			} as AssistantMessage["usage"],
+			degraded: true,
+		};
+	};
 	// A fresh tag per request: the payload wrapper is not guessable from the input,
 	// so a `</...>` in the prompt cannot close it early. The system prompt has to
 	// name the same tag the payload uses, or the model is told to look in the wrong
@@ -227,8 +261,8 @@ export async function translate(
 	}
 
 	if (response.stopReason === "error" || response.stopReason === "aborted") {
-		throw new Error(
-			response.errorMessage ?? `Translation failed: ${response.stopReason}`,
+		return degrade(
+			`${purpose} translation failed (${response.stopReason}): ${response.errorMessage ?? "no detail"}`,
 		);
 	}
 	debug(

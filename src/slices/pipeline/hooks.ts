@@ -107,6 +107,11 @@ export function registerAgentHooks(
 				"prompt",
 				conversationContext,
 			);
+
+			if (translated.degraded) {
+				// Nothing was translated: the original, unmasked prompt flows on.
+				return { action: "continue" };
+			}
 			const histBadge = conversationContext ? " [with history]" : "";
 			if (ctx.hasUI) {
 				ctx.ui.notify(
@@ -237,6 +242,11 @@ export function registerAgentHooks(
 				current.targetLanguage,
 				"answer",
 			);
+			if (translated.degraded) {
+				// The briefing stays as the model wrote it; degrade() already warned.
+				refreshBalanceStatus(ctx);
+				return undefined;
+			}
 			rememberFinalTranslation(pi, {
 				at: new Date().toISOString(),
 				targetLanguage: current.targetLanguage,

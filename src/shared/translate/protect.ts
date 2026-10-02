@@ -270,9 +270,16 @@ export function restoreProtectedSegments(
 			);
 			if (fuzzyRegex.test(restored)) {
 				restored = restored.replace(fuzzyRegex, `$1${segment.value}`);
-			} else {
-				// Safety recovery: if the placeholder was completely dropped by the model,
-				// append the protected payload to ensure critical code, links, or files are not lost.
+			} else if (!restored.includes(segment.value)) {
+				// Safety recovery: if the placeholder was completely dropped by the
+				// model, append the protected payload so critical code, links, or files
+				// are not lost.
+				//
+				// Only when the value is genuinely absent. Without this check the
+				// recovery re-appends anything the model already emitted on its own —
+				// an answer dense in inline code came back with every path, id and URL
+				// duplicated as a trailing list, because the model dropped the
+				// placeholders but kept their meaning.
 				restored = `${restored.trimEnd()}\n\n${segment.value}`;
 			}
 		}

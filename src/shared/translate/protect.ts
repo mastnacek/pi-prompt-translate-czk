@@ -41,6 +41,29 @@ const CZ_CASE_ENDINGS = [
 	"ů",
 ].join("|");
 
+/** One or more consecutive pipe-grid rows. */
+const TABLE_BLOCK = /(?:^[ \t]*\|[^\n]*\|[ \t]*$\n?)+/gm;
+
+/** A real table has a header row and a `| --- |` separator on row 2. */
+function isTableBlock(block: string): boolean {
+	const rows = block.split("\n").filter((l) => l.trim().length > 0);
+	return rows.length >= 2 && /^[ \t]*\|[\s:|-]+\|[ \t]*$/.test(rows[1] ?? "");
+}
+
+/**
+ * Mask each markdown table as one segment. Unmasked, the grid reaches the
+ * translator as prose and comes back re-flowed into bare cells, header gone.
+ * Runs before the inline-code rule so a table costs one segment, not one
+ * per span inside it. Trade: the table is not translated — a mangled grid is
+ * worse than an English one, and these cells hold ids, paths and verdicts.
+ */
+function protectTables(text: string, addSegment: (value: string) => string): string {
+	return text.replace(TABLE_BLOCK, (match) =>
+		// The regex swallows the trailing newline; keeping it would leave a
+		// blank line after the restored grid.
+		isTableBlock(match) ? addSegment(match.replace(/\n$/, "")) : match,
+	);
+}
 export function protectPromptSegments(
 	text: string,
 	knownWords: string[] = state.atWords,
@@ -64,7 +87,10 @@ export function protectPromptSegments(
 		(match) => addSegment(match),
 	);
 
-	// 3. Protect multi-line markdown code blocks and inline code
+	// 3. Protect markdown tables first, so each grid is one segment
+	protectedText = protectTables(protectedText, addSegment);
+
+	// 4. Protect multi-line markdown code blocks and inline code
 	protectedText = protectedText.replace(/```[\s\S]*?```/g, (match) =>
 		addSegment(match),
 	);
@@ -189,6 +215,9 @@ export function protectFinalAnswerSegments(text: string): ProtectedText {
 		(match, tagName: string) =>
 			shouldProtectTagName(tagName) ? addSegment(match) : match,
 	);
+
+	// Markdown tables, same reason and same trade-off.
+	protectedText = protectTables(protectedText, addSegment);
 
 	// Protect multi-line markdown code blocks and inline code.
 	// Same two rules the prompt path uses. Without them a ```ts sample in an

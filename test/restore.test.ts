@@ -141,4 +141,47 @@ describe("restoreProtectedSegments", () => {
 		expect(restored).toContain("lotusscript_modular");
 		expect(restored.match(/lotusscript_modular/g)).toHaveLength(1);
 	});
+
+	it("matches a present value even when the model stripped its markdown delimiters", () => {
+		// The real model behaviour: it emits the meaning in prose and drops the
+		// backticks, so comparing the delimited segment value never matches and the
+		// recovery appended a duplicate of text that was already there.
+		const segments = [
+			{
+				placeholder: "__PI_PROMPT_TRANSLATE_PROTECTED_0__",
+				value: "`https://openrouter.ai/api/alpha/decisions`",
+			},
+			{
+				placeholder: "__PI_PROMPT_TRANSLATE_PROTECTED_1__",
+				value: "`client.ts:20`",
+			},
+			{
+				placeholder: "__PI_PROMPT_TRANSLATE_PROTECTED_2__",
+				value: "`sub_HledejLidyIFX.lss`",
+			},
+		];
+
+		const restored = restoreProtectedSegments(
+			"Router volá https://openrouter.ai/api/alpha/decisions z client.ts:20, " +
+			"procedura sub_HledejLidyIFX.lss se nezměnila.",
+			segments,
+		);
+
+		// Inner underscores survive the bare comparison.
+		expect(restored.split("openrouter.ai").length - 1).toBe(1);
+		expect(restored.split("client.ts:20").length - 1).toBe(1);
+		expect(restored.split("sub_HledejLidyIFX.lss").length - 1).toBe(1);
+	});
+
+	it("still recovers when only the delimiters differ and the value is genuinely gone", () => {
+		const segments = [
+			{
+				placeholder: "__PI_PROMPT_TRANSLATE_PROTECTED_0__",
+				value: "`lotusscript_modular`",
+			},
+		];
+		const restored = restoreProtectedSegments("Použij plugin.", segments);
+		expect(restored).toContain("lotusscript_modular");
+		expect(restored.split("lotusscript_modular").length - 1).toBe(1);
+	});
 });

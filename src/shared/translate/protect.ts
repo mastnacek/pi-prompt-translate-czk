@@ -241,6 +241,32 @@ export function protectFinalAnswerSegments(text: string): ProtectedText {
 	return { text: protectedText, segments };
 }
 
+/**
+ * True when the payload's bare text is already present in the restored answer.
+ *
+ * The segment value keeps its markdown delimiters (`` `code` ``, `*bold*`), but a
+ * translation model reliably drops them: it sees `__PI_..._0__`, emits the meaning
+ * in prose, and hands back `code` without the backticks. Comparing the delimited
+ * form therefore never matches and the recovery re-appends a duplicate of text that
+ * is already right there. Only the wrapping delimiters come off — underscores
+ * inside an identifier must survive, or `sub_HledejLidyIFX.lss` stops matching.
+ *
+ * Short values are treated as absent: at three characters an ordinary Czech word
+ * would satisfy `includes` by coincidence and the recovery would silently drop
+ * genuinely lost content.
+ */
+const BARE_MIN_LENGTH = 4;
+
+function hasBareValue(restored: string, value: string): boolean {
+	const bare = value
+		.replace(/`/g, "")
+		.replace(/^[*]+|[*]+$/g, "")
+		.replace(/^_+|_+$/g, "")
+		.trim();
+	if (bare.length < BARE_MIN_LENGTH) return false;
+	return restored.includes(bare);
+}
+
 export function restoreProtectedSegments(
 	text: string,
 	segments: ProtectedSegment[],
@@ -270,7 +296,7 @@ export function restoreProtectedSegments(
 			);
 			if (fuzzyRegex.test(restored)) {
 				restored = restored.replace(fuzzyRegex, `$1${segment.value}`);
-			} else if (!restored.includes(segment.value)) {
+			} else if (!hasBareValue(restored, segment.value)) {
 				// Safety recovery: if the placeholder was completely dropped by the
 				// model, append the protected payload so critical code, links, or files
 				// are not lost.

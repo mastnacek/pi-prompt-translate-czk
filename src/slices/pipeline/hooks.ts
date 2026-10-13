@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ToolCall } from "@earendil-works/pi-ai";
 import { getEffectiveTranslateModel } from "../../shared/config-model.js";
 import { getFinalTranslationMap, rememberFinalTranslation, replaceDisplayedAssistantTextWithEnglish, styleAtWords } from "../../shared/display.js";
-import { extractGoalObjective } from "../../shared/goal-command.js";
+import { resolveTranslatableInput } from "../../shared/translatable-input.js";
 import { state } from "../../shared/state.js";
 import { debug, formatCost } from "../../shared/format.js";
 import { refreshBalanceStatus, updateTranslateStatus } from "../../shared/status-bus.js";
@@ -29,26 +29,9 @@ export function registerAgentHooks(
 			return { action: "continue" };
 		}
 
-		const goalCommand = extractGoalObjective(event.text);
-		let textToTranslate: string;
-		let rebuild: ((translated: string) => string) | undefined;
-		if (goalCommand) {
-			if (!goalCommand.objective) return { action: "continue" };
-			if (
-				state.lastGoalTransform &&
-				event.text === state.lastGoalTransform.to &&
-				Date.now() - state.lastGoalTransform.at < 30_000
-			) {
-				return { action: "continue" };
-			}
-			textToTranslate = goalCommand.objective;
-			rebuild = goalCommand.rebuild;
-		} else {
-			if (event.text.trim().startsWith("/")) {
-				return { action: "continue" };
-			}
-			textToTranslate = event.text;
-		}
+		const translatable = resolveTranslatableInput(event.text, state.piApi);
+		if (!translatable) return { action: "continue" };
+		const { text: textToTranslate, rebuild, skillName } = translatable;
 
 		if (state.config.autodetect && state.config.boost === "off") {
 			const detection = detectLanguageOrCode(textToTranslate);
@@ -114,8 +97,9 @@ export function registerAgentHooks(
 			}
 			const histBadge = conversationContext ? " [with history]" : "";
 			if (ctx.hasUI) {
+				const label = skillName ? `/skill:${skillName} args` : "prompt";
 				ctx.ui.notify(
-					`prompt-translate: prompt → EN${histBadge} ${formatCost(translated.costUsd, translated.costCzk)}`,
+					`prompt-translate: ${label} → EN${histBadge} ${formatCost(translated.costUsd, translated.costCzk)}`,
 					"info",
 				);
 			}
@@ -165,6 +149,13 @@ export function registerAgentHooks(
 				costCzk: translated.costCzk,
 				conversationContext,
 			});
+			if (skillName) {
+				state.lastSkillTransform = {
+					from: event.text,
+					to: englishText,
+					at: Date.now(),
+				};
+			}
 			return {
 				action: "transform",
 				text: englishText,

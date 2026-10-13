@@ -40,6 +40,10 @@ export const state = {
 	lastGoalTransform: undefined as
 		| { from: string; to: string; at: number }
 		| undefined,
+	/** Same guard for /skill:<name> args transforms (independent 30s window). */
+	lastSkillTransform: undefined as
+		| { from: string; to: string; at: number }
+		| undefined,
 	/** Translation USD cost accumulated in this session (recomputed on session_start). */
 	sessionCostUsd: 0,
 	/** Confirmed words/symbols synchronized from pi-at-words. */

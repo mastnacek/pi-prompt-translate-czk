@@ -299,6 +299,7 @@ function hasBareValue(restored: string, value: string): boolean {
 export function restoreProtectedSegments(
 	text: string,
 	segments: ProtectedSegment[],
+	stats?: { appended: number },
 ): string {
 	let restored = text;
 	for (const segment of segments) {
@@ -336,6 +337,7 @@ export function restoreProtectedSegments(
 				// duplicated as a trailing list, because the model dropped the
 				// placeholders but kept their meaning.
 				restored = `${restored.trimEnd()}\n\n${segment.value}`;
+				if (stats) stats.appended += 1;
 			}
 		}
 	}

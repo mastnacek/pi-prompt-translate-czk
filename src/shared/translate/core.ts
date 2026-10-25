@@ -260,19 +260,44 @@ export async function translate(
 		response = await makeDoCall(currentReasoning)();
 	}
 
+	// A truncated translation (stopReason "length") is a failure, not a result:
+	// the restore step appends every unreached placeholder as a bare token wall.
+	// Reasoning shares the output budget, and some providers (OpenRouter
+	// gemini-*-flash-lite) ignore thinkingBudgets entirely — the model spends
+	// almost the whole budget on reasoning and the prose gets cut off. Retrying
+	// once without thinking frees the entire budget for the translation itself.
+	if (response.stopReason === "length" && currentReasoning) {
+		debug(ctx, "translation truncated with thinking on; retrying without thinking");
+		currentReasoning = undefined;
+		response = await makeDoCall(currentReasoning)();
+	}
+
 	if (response.stopReason === "error" || response.stopReason === "aborted") {
 		return degrade(
 			`${purpose} translation failed (${response.stopReason}): ${response.errorMessage ?? "no detail"}`,
 		);
+	}
+	if (response.stopReason === "length") {
+		return degrade(`${purpose} translation truncated at maxTokens`);
 	}
 	debug(
 		ctx,
 		`${purpose} translation usage: ${formatUsage(response.usage, czkRate)}`,
 	);
 	const cleanedOutput = cleanTranslationOutput(getText(response).trim(), sourceTag);
+	const restoreStats = { appended: 0 };
 	const translatedText = stripKeepTags(
-		restoreProtectedSegments(cleanedOutput, protectedInput.segments),
+		restoreProtectedSegments(cleanedOutput, protectedInput.segments, restoreStats),
 	);
+	// Defense in depth: even when the provider did not report truncation, a
+	// translation that needed more than a couple of safety-recovery appends lost
+	// most of its structure. Passing the original through beats showing a stub
+	// followed by a trailing wall of bare code tokens.
+	if (restoreStats.appended > 3) {
+		return degrade(
+			`${purpose} translation dropped ${restoreStats.appended} protected segments`,
+		);
+	}
 	const costUsd =
 		typeof response.usage.cost?.total === "number"
 			? response.usage.cost.total

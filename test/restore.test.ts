@@ -184,4 +184,33 @@ describe("restoreProtectedSegments", () => {
 		expect(restored).toContain("lotusscript_modular");
 		expect(restored.split("lotusscript_modular").length - 1).toBe(1);
 	});
+
+	it("counts safety-recovery appends in the optional stats out-param", () => {
+		// The count feeds the degrade guard in core.ts: a truncated translation
+		// (stopReason "length") reaches restore with most placeholders unreached
+		// and every one of them lands in the recovery branch.
+		const segments = [
+			{ placeholder: "__PI_PROMPT_TRANSLATE_PROTECTED_0__", value: "src/a.ts" },
+			{ placeholder: "__PI_PROMPT_TRANSLATE_PROTECTED_1__", value: "https://foo.com" },
+			{ placeholder: "__PI_PROMPT_TRANSLATE_PROTECTED_2__", value: "src/b.ts" },
+		];
+
+		// Exact restore + bare value already present → nothing appended.
+		const clean = { appended: 0 };
+		restoreProtectedSegments(
+			"Viz __PI_PROMPT_TRANSLATE_PROTECTED_0__ a src/b.ts.",
+			[segments[0], segments[2]],
+			clean,
+		);
+		expect(clean.appended).toBe(0);
+
+		// Everything dropped (the truncation shape) → every segment counted.
+		const truncated = { appended: 0 };
+		const restored = restoreProtectedSegments("Jen holý text.", segments, truncated);
+		expect(truncated.appended).toBe(3);
+		expect(restored).toContain("https://foo.com");
+
+		// The out-param stays optional.
+		expect(() => restoreProtectedSegments("x", segments)).not.toThrow();
+	});
 });

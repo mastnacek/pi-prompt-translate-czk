@@ -146,7 +146,7 @@ One compact footer segment (left → right):
 
 Each translated prompt gets a box above it with the original text
 (`original:` label). Colors come from the active pi theme: the box background
-uses the theme's `selectedBg` slot (contrasts with the user message
+uses the theme's `customMessageBg` slot (contrasts with the user message
 background), label/text use `customMessageLabel`/`customMessageText`. The box
 adapts automatically when you switch themes. Toggle with
 `/prompt-translate original on|off`.

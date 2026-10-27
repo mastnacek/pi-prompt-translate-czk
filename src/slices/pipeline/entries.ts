@@ -27,7 +27,7 @@ export function registerEntryRenderers(pi: ExtensionAPI): void {
 		if (typeof source !== "string" || !source.trim()) return undefined;
 
 		if (state.config.diff) {
-			const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
+			const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
 			const boostBadge =
 				entry.data?.boost && entry.data.boost !== "off"
 					? ` [boost: ${entry.data.boost}]`
@@ -69,7 +69,7 @@ export function registerEntryRenderers(pi: ExtensionAPI): void {
 		}
 
 		if (!state.config.showOriginal) return undefined;
-		const box = new Box(1, 1, (text) => theme.bg("selectedBg", text));
+		const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
 		const historyBadge = entry.data?.conversationContext
 			? ` ${theme.fg("dim", "[with history]")}`
 			: "";

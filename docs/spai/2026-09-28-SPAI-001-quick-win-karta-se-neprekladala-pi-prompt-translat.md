@@ -9,6 +9,10 @@ facets:
   priority: high
   project: pi-prompt-translate-czk
   project_path: D:/01_programovani/pi/plugins/pi-prompt-translate-czk
+  area: Notes
+  effort: medium
+  urgency: high
+  who: Agent
 spai_symbol: '-'
 ---
 
